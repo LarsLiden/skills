@@ -33,6 +33,7 @@ laliden_skills/
 | Skill | Description |
 |-------|-------------|
 | [create-skill](skills/create-skill/SKILL.md) | Scaffolds a new Agent Skill in this repository |
+| [fallback](skills/fallback/SKILL.md) | Finds and removes fallback behaviors that mask real bugs while preserving visible error handling |
 
 ## Adding a Skill
 

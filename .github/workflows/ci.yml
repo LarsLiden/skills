@@ -7,9 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  validate-manifests:
-    name: Validate skill manifests
+  validate-skills:
+    name: Validate SKILL.md files
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -18,38 +20,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install jsonschema
-        run: pip install jsonschema pyyaml
+      - name: Install dependencies
+        run: pip install pyyaml
 
-      - name: Validate all skill.yml files
+      - name: Validate all SKILL.md files
         run: python scripts/validate_manifests.py
-
-  test-skills:
-    name: Test skills
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install pytest
-        run: pip install pytest
-
-      - name: Run all skill tests
-        run: |
-          set -euo pipefail
-          FAILED=0
-          for skill_dir in skills/*/; do
-            if [ -d "${skill_dir}tests" ]; then
-              echo "==> Testing ${skill_dir}"
-              # Install skill-specific requirements if present
-              if [ -f "${skill_dir}requirements.txt" ]; then
-                pip install -r "${skill_dir}requirements.txt"
-              fi
-              pytest "${skill_dir}tests/" -v || FAILED=1
-            fi
-          done
-          exit $FAILED

@@ -12,13 +12,13 @@
 
 ## Checklist
 
-- [ ] `skill.yml` is present and validates against `schema/skill-schema.json`
-- [ ] `README.md` documents inputs, outputs, and usage examples
-- [ ] Skill name (folder + `name` field) is kebab-case and matches
-- [ ] Version in `skill.yml` follows semver (`MAJOR.MINOR.PATCH`)
-- [ ] At least one test exists under `tests/`
+- [ ] `SKILL.md` is present with valid YAML frontmatter (`name` + `description`)
+- [ ] `name` in frontmatter is kebab-case and matches the folder name exactly
+- [ ] `description` is non-empty, ≤ 1024 characters, and includes trigger keywords
+- [ ] Body includes Purpose, When to Use, Workflow, and Validation sections
+- [ ] `SKILL.md` is ≤ 500 lines (long content moved to `references/` if needed)
+- [ ] `python scripts/validate_manifests.py` passes locally
 - [ ] All CI checks pass
-- [ ] I have tested the skill locally
 
 ## Related issues
 

@@ -12,5 +12,5 @@ This directory contains shared documentation for all skills in this repository.
 ## Quick Links
 
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — How to add a new skill
-- [schema/skill-schema.json](../schema/skill-schema.json) — Manifest schema
-- [skill-template/](../skill-template/) — Starter template for new skills
+- [skill-template/SKILL.md](../skill-template/SKILL.md) — Starter template for new skills
+- [Agent Skills Specification](https://agentskills.io/specification) — Upstream spec

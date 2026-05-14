@@ -45,10 +45,10 @@ If a subdirectory is provided, treat it as the review root for the rest of the w
 Find every `.md` file under the chosen review root:
 
 ```bash
-find . -name "*.md" -not -path "./.git/*"
+find <review_root> -name "*.md" -not -path "*/.git/*"
 ```
 
-If the review root is a subdirectory, run the search from that directory or otherwise restrict the results to that subtree. Build a list of files to review.
+Substitute `<review_root>` with the repository root for a full-repository pass, or with the user-specified subdirectory for a scoped pass. Build a list of files to review.
 
 ### Step 3: Understand the current codebase
 
@@ -116,5 +116,5 @@ Check top-level files that list or link to other docs (e.g., `README.md`, `docs/
 | Updating docs without reading the current code | Always inspect the source files first; never assume from the docs alone |
 | Editing files outside the user's requested subdirectory | Treat the requested subdirectory as the review root and only touch external files when navigation must be updated |
 | Breaking the tone or style of existing docs | Preserve voice and formatting; only change factually incorrect content |
-| Missing docs in nested subdirectories | Use a recursive glob (`**/*.md`) rather than checking only the root |
+| Missing docs in nested subdirectories | Use a recursive search rooted at the selected review root, such as `find <review_root> -name "*.md"` |
 | Leaving broken anchors after edits | Check heading IDs if other docs use anchor links (`#section-name`) |

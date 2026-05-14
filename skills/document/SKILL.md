@@ -1,16 +1,17 @@
 ---
 name: document
-description: Updates documentation in a repository to reflect recent code changes. Use when documentation (.md files) may be stale, after a code change, or when asked to update, refresh, or clean up docs. Removes outdated documentation that no longer applies.
+description: Updates documentation in a repository or a user-specified subdirectory to reflect recent code changes. Use when documentation (.md files) may be stale, after a code change, or when asked to update, refresh, or clean up docs. Removes outdated documentation that no longer applies.
 ---
 
 # Document
 
-This skill reviews all Markdown documentation files in a repository, updates them to reflect the current state of the code, and removes or archives any documentation that is no longer relevant.
+This skill reviews Markdown documentation files in a repository or in a user-specified subdirectory, updates them to reflect the current state of the code, and removes or archives any documentation that is no longer relevant.
 
 ## When to Use
 
 - After code changes that may have made existing documentation stale
 - When asked to "update the docs", "refresh documentation", or "clean up docs"
+- When the user wants the update limited to a particular subdirectory instead of the entire repository
 - When README files, guides, or reference docs reference outdated APIs, commands, or workflows
 - When obsolete documentation files exist that no longer correspond to any feature or component
 
@@ -25,29 +26,39 @@ This skill reviews all Markdown documentation files in a repository, updates the
 | Input | Required | Description |
 |-------|----------|-------------|
 | Repository path | Yes | Root of the repository to update |
-| Scope | No | Limit the review to a subdirectory or specific files (defaults to all `.md` files in the repo) |
+| Subdirectory | No | A user-specified subdirectory to review instead of the entire repository |
+| Scope | No | Additional limit within the chosen repository or subdirectory, such as a smaller set of files |
 
 ## Workflow
 
-### Step 1: Discover all Markdown files
+### Step 1: Determine the review root
 
-Find every `.md` file in the repository:
+Decide whether to work on:
+
+- The entire repository, or
+- A user-specified subdirectory
+
+If a subdirectory is provided, treat it as the review root for the rest of the workflow and do not edit Markdown files outside that subtree unless the user explicitly asks for it.
+
+### Step 2: Discover all Markdown files
+
+Find every `.md` file under the chosen review root:
 
 ```bash
 find . -name "*.md" -not -path "./.git/*"
 ```
 
-Build a list of files to review.
+If the review root is a subdirectory, run the search from that directory or otherwise restrict the results to that subtree. Build a list of files to review.
 
-### Step 2: Understand the current codebase
+### Step 3: Understand the current codebase
 
 Before editing any docs, read the current state of the code:
 
 - Examine the directory structure and key source files
 - Note public APIs, CLI commands, configuration options, and workflows that docs may reference
-- Check the git log for recent commits to identify what has changed
+- Check the git log for recent commits that affected the chosen review root to identify what has changed
 
-### Step 3: Review each documentation file
+### Step 4: Review each documentation file
 
 For each `.md` file:
 
@@ -56,7 +67,7 @@ For each `.md` file:
 3. Check that code examples still work as written
 4. Note any files that are entirely obsolete (e.g., docs for a feature that no longer exists)
 
-### Step 4: Update stale documentation
+### Step 5: Update stale documentation
 
 For each file with outdated content:
 
@@ -65,34 +76,37 @@ For each file with outdated content:
 - Fix broken relative links (links to files that have moved or been deleted)
 - Preserve the existing tone, style, and structure of the document
 
-### Step 5: Remove obsolete documentation
+### Step 6: Remove obsolete documentation
 
 For files that are entirely obsolete:
 
 - Confirm that no other file links to them (search for the filename across all `.md` files)
 - Delete the file if it is safe to do so, or replace its content with a redirect note pointing to the current docs
 
-### Step 6: Update navigation and index files
+### Step 7: Update navigation and index files
 
 Check top-level files that list or link to other docs (e.g., `README.md`, `docs/index.md`, `SUMMARY.md`):
 
 - Remove links to deleted files
 - Add links to any newly created documentation if applicable
 - Ensure the table of contents, if present, reflects the current set of files
+- If working in a subdirectory, also update any higher-level navigation files outside that subdirectory only when they directly reference files you changed or removed
 
-### Step 7: Validate
+### Step 8: Validate
 
 - Run any documentation linters or link-checkers configured in the repository (e.g., `markdownlint`, `lychee`)
 - Re-read changed files to confirm accuracy and consistency
+- Confirm that no edits were made outside the user-requested subdirectory, except for required navigation or index updates
 
 ## Validation
 
-- [ ] All `.md` files have been reviewed
+- [ ] All `.md` files in the selected repository scope or subdirectory have been reviewed
 - [ ] No documentation references removed, renamed, or moved code paths
 - [ ] All code examples in docs match the current codebase
 - [ ] All internal links in Markdown files resolve correctly
 - [ ] Obsolete documentation files have been deleted or redirected
 - [ ] Index and navigation files (`README.md`, `SUMMARY.md`, etc.) reflect the current set of docs
+- [ ] No files outside the requested subdirectory were changed unless they needed navigation updates
 
 ## Common Pitfalls
 
@@ -100,6 +114,7 @@ Check top-level files that list or link to other docs (e.g., `README.md`, `docs/
 |---------|----------|
 | Deleting a file that is still linked elsewhere | Search for the filename across all `.md` files before deleting |
 | Updating docs without reading the current code | Always inspect the source files first; never assume from the docs alone |
+| Editing files outside the user's requested subdirectory | Treat the requested subdirectory as the review root and only touch external files when navigation must be updated |
 | Breaking the tone or style of existing docs | Preserve voice and formatting; only change factually incorrect content |
 | Missing docs in nested subdirectories | Use a recursive glob (`**/*.md`) rather than checking only the root |
 | Leaving broken anchors after edits | Check heading IDs if other docs use anchor links (`#section-name`) |

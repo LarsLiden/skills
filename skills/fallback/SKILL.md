@@ -27,6 +27,7 @@ Use this skill when code appears to hide real defects behind silent defaults, ca
 | Input | Required | Description |
 |-------|----------|-------------|
 | Repository or target area | Yes | The codebase, package, files, or feature area to inspect |
+| Subdirectory or path filter | No | A specific subdirectory or glob pattern (e.g. `src/payments` or `src/**/*.ts`) to restrict the search scope; when omitted the entire repository is inspected |
 | User concern or symptom | No | Error, behavior, or suspicion that suggests a fallback is masking a bug |
 | Approval to modify code | No | Whether to only report findings or also remove approved fallbacks |
 | UI expectations | No | Whether the application should surface resulting errors in a user-visible way |
@@ -34,6 +35,8 @@ Use this skill when code appears to hide real defects behind silent defaults, ca
 ## Workflow
 
 ### Step 1: Find candidate fallback behaviors
+
+If the user supplied a **subdirectory or path filter**, restrict every search and all subsequent file reads, edits, and test runs to that path only. Do not inspect, report on, or modify code outside the specified scope. When no subdirectory is given, the full repository is in scope.
 
 Search for patterns that commonly hide failures: broad exception handlers, default literals used after failed lookups, placeholder objects, empty collections returned on error, suppressed logs, feature flags used to skip broken paths, and comments such as `fallback`, `just in case`, or `avoid crash`.
 

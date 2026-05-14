@@ -37,7 +37,7 @@ Use this skill when code appears to hide real defects behind silent defaults, ca
 
 Search for patterns that commonly hide failures: broad exception handlers, default literals used after failed lookups, placeholder objects, empty collections returned on error, suppressed logs, feature flags used to skip broken paths, and comments such as `fallback`, `just in case`, or `avoid crash`.
 
-Prioritise fallbacks that:
+Prioritize fallbacks that:
 - change externally visible behavior after a failure
 - turn invalid state into seemingly valid state
 - discard error context

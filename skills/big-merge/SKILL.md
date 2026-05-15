@@ -49,6 +49,7 @@ For the current PR in the queue, apply it to the target branch. Identify whether
 
 If any functionality or UI conflict requires choosing one behavior over another, pause and present each decision clearly to the user:
 
+- what the current PR is intended to achieve (its functional purpose)
 - where the conflict is
 - option A vs option B behavior
 - tradeoff or impact of each option

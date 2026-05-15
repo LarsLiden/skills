@@ -109,6 +109,16 @@ Check manually that:
 - All file references use relative paths
 - No secrets, tokens, or internal URLs are included
 
+### Step 7: Update README.md
+
+Open `README.md` at the repository root and add a row for the new skill to the **Skills** table, keeping the rows sorted alphabetically by skill name:
+
+```markdown
+| [<skill-name>](skills/<skill-name>/SKILL.md) | <one-line description from frontmatter> |
+```
+
+If you are updating an existing skill whose description changed, update the corresponding row in the same table.
+
 ## Validation
 
 - [ ] Skill directory exists at `skills/<skill-name>/`
@@ -117,6 +127,7 @@ Check manually that:
 - [ ] `description` is present, non-empty, and ≤ 1024 characters
 - [ ] Body contains Purpose, When to Use, Workflow, and Validation sections
 - [ ] `python scripts/validate_manifests.py` reports `OK`
+- [ ] `README.md` Skills table has been updated with the new or changed skill
 
 ## Common Pitfalls
 

@@ -49,12 +49,15 @@ laliden_skills/
 
 3. **Add optional supporting files** in `scripts/`, `references/`, or `assets/` if needed.
 
-4. **Validate locally:**
+4. **Update `README.md`:**
+   Add (or update) the skill's row in the **Skills** table, keeping the list sorted alphabetically.
+
+5. **Validate locally:**
    ```bash
    python scripts/validate_manifests.py
    ```
 
-5. **Open a pull request** — CI will validate all `SKILL.md` files automatically.
+6. **Open a pull request** — CI will validate all `SKILL.md` files automatically.
 
 ---
 

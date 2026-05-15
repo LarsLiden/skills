@@ -36,6 +36,7 @@ laliden_skills/
 | [create-skill](skills/create-skill/SKILL.md) | Scaffolds a new Agent Skill in this repository |
 | [document](skills/document/SKILL.md) | Updates documentation to reflect recent code changes |
 | [fallback](skills/fallback/SKILL.md) | Finds and removes fallback behaviors that mask real bugs while preserving visible error handling |
+| [reccomended-refactors](skills/reccomended-refactors/SKILL.md) | Analyzes a repository for refactoring opportunities and produces a prioritized report |
 
 ## Using Skills in Another Repository
 

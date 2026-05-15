@@ -32,8 +32,22 @@ laliden_skills/
 
 | Skill | Description |
 |-------|-------------|
+| [cleanup](skills/cleanup/SKILL.md) | Scans for dead code and unused tests, then removes them |
 | [create-skill](skills/create-skill/SKILL.md) | Scaffolds a new Agent Skill in this repository |
+| [document](skills/document/SKILL.md) | Updates documentation to reflect recent code changes |
 | [fallback](skills/fallback/SKILL.md) | Finds and removes fallback behaviors that mask real bugs while preserving visible error handling |
+
+## Using Skills in Another Repository
+
+Install any skill from this library into your own repository with the GitHub CLI:
+
+```bash
+gh skill install msr-central/laliden_skills/cleanup
+gh skill install msr-central/laliden_skills/document
+gh skill install msr-central/laliden_skills/fallback
+```
+
+This copies the skill into `.agents/skills/<skill-name>/` in your repository. Once installed, compatible agents (GitHub Copilot, Claude Code, Cursor, Kiro, and others) will discover and activate the skill automatically when your prompt matches its description.
 
 ## Adding a Skill
 

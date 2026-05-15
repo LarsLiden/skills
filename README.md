@@ -32,6 +32,7 @@ laliden_skills/
 
 | Skill | Description |
 |-------|-------------|
+| [big-merge](skills/big-merge/SKILL.md) | Performs large branch reconciliation by applying mainline PRs one at a time with conflict checkpoints and manual-test approval gates |
 | [cleanup](skills/cleanup/SKILL.md) | Scans for dead code and unused tests, then removes them |
 | [create-skill](skills/create-skill/SKILL.md) | Scaffolds a new Agent Skill in this repository |
 | [document](skills/document/SKILL.md) | Updates documentation to reflect recent code changes |

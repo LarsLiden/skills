@@ -19,7 +19,7 @@ Use this skill when a long-lived branch has diverged significantly from `main` a
 
 - The branch can be safely rebased or merged in one pass without meaningful overlap risk
 - The user wants fully automated conflict handling with no decision checkpoints
-- There is no clear list of main PRs/commits to apply in sequence
+- There is no clear list of main PRs/commits to apply in sequence and it cannot be derived from GitHub history
 - The request is only to report conflicts, not to perform integration steps
 
 ## Inputs
@@ -27,7 +27,7 @@ Use this skill when a long-lived branch has diverged significantly from `main` a
 | Input | Required | Description |
 |-------|----------|-------------|
 | Current branch (target) | Yes | The currently checked-out diverged branch that must receive changes from `main` |
-| Main PR sequence | Yes | Ordered list of `main` PRs (or equivalent commit references) to apply one by one |
+| Main PR sequence | No | If not provided, derive an ordered list from GitHub history (merged PRs/commits into `main`) and confirm the proposed queue with the user before applying anything |
 | Conflict decision source | Yes | Person/team authorized to choose between conflicting functionality or UI behaviors |
 | Test scope | No | What manual or automated checks should run after each merge |
 | Stop conditions | No | Conditions that should pause or abort progression (failed test, unresolved conflict, unclear requirement) |
@@ -36,7 +36,7 @@ Use this skill when a long-lived branch has diverged significantly from `main` a
 
 ### Step 1: Prepare and order the integration queue
 
-Confirm you are on the intended target branch (use the currently active branch), gather the exact ordered list of `main` PRs to apply, and state the sequence before changing code. Ensure each item has a resolvable commit reference and that the next action is always a single-PR integration step.
+Confirm you are on the intended target branch (use the currently active branch). Gather the exact ordered list of `main` PRs to apply, or derive it from GitHub history if the user did not provide one, then present the proposed sequence for confirmation before changing code. Ensure each item has a resolvable commit reference and that the next action is always a single-PR integration step.
 
 ### Step 2: Apply one PR and detect meaningful conflicts
 

@@ -26,7 +26,7 @@ Use this skill when a long-lived branch has diverged significantly from `main` a
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| Target branch | Yes | The diverged branch that must receive changes from `main` |
+| Current branch (target) | Yes | The currently checked-out diverged branch that must receive changes from `main` |
 | Main PR sequence | Yes | Ordered list of `main` PRs (or equivalent commit references) to apply one by one |
 | Conflict decision source | Yes | Person/team authorized to choose between conflicting functionality or UI behaviors |
 | Test scope | No | What manual or automated checks should run after each merge |
@@ -36,7 +36,7 @@ Use this skill when a long-lived branch has diverged significantly from `main` a
 
 ### Step 1: Prepare and order the integration queue
 
-Confirm the target branch, gather the exact ordered list of `main` PRs to apply, and state the sequence before changing code. Ensure each item has a resolvable commit reference and that the next action is always a single-PR integration step.
+Confirm you are on the intended target branch (use the currently active branch), gather the exact ordered list of `main` PRs to apply, and state the sequence before changing code. Ensure each item has a resolvable commit reference and that the next action is always a single-PR integration step.
 
 ### Step 2: Apply one PR and detect meaningful conflicts
 

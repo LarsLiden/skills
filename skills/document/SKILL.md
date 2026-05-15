@@ -1,6 +1,6 @@
 ---
 name: document
-description: Updates documentation in a repository or a user-specified subdirectory to reflect recent code changes. Use when documentation (.md files) may be stale, after a code change, or when asked to update, refresh, or clean up docs. Removes outdated documentation that no longer applies.
+description: Updates documentation in a repository or a user-specified subdirectory to reflect recent code changes. Use when documentation (.md files) may be stale, after a code change, or when asked to update, refresh, or clean up docs. Removes outdated documentation that no longer applies. Also cleans up outdated inline code comments that are no longer accurate or helpful.
 ---
 
 # Document
@@ -14,6 +14,7 @@ This skill reviews Markdown documentation files in a repository or in a user-spe
 - When the user wants the update limited to a particular subdirectory instead of the entire repository
 - When README files, guides, or reference docs reference outdated APIs, commands, or workflows
 - When obsolete documentation files exist that no longer correspond to any feature or component
+- When inline source code comments reference removed features, old APIs, or behavior that no longer exists
 
 ## When Not to Use
 
@@ -76,14 +77,30 @@ For each file with outdated content:
 - Fix broken relative links (links to files that have moved or been deleted)
 - Preserve the existing tone, style, and structure of the document
 
-### Step 6: Remove obsolete documentation
+### Step 6: Clean up outdated inline code comments
+
+Review source files in the chosen review root for inline comments that are no longer accurate or helpful:
+
+- **Outdated references** – comments that mention removed functions, renamed variables, deleted files, or superseded APIs
+- **Wrong behavior descriptions** – comments that describe what code does but contradict the current implementation
+- **Resolved TODO/FIXME/HACK markers** – annotated items whose underlying issue has already been addressed
+- **Commented-out code blocks** – dead code left behind after a refactor or deletion that serves no explanatory purpose
+
+For each source file, scan comments and:
+
+1. Remove or rewrite comments that are factually incorrect given the current code
+2. Remove commented-out code that is no longer needed and is not serving as an intentional example
+3. Resolve or remove TODO/FIXME markers whose issue has been closed or whose code has already been fixed
+4. Leave comments that are still accurate, provide non-obvious context, or document intentional design decisions
+
+### Step 7: Remove obsolete documentation
 
 For files that are entirely obsolete:
 
 - Confirm that no other file links to them (search for the filename across all `.md` files)
 - Delete the file if it is safe to do so, or replace its content with a redirect note pointing to the current docs
 
-### Step 7: Update navigation and index files
+### Step 8: Update navigation and index files
 
 Check top-level files that list or link to other docs (e.g., `README.md`, `docs/index.md`, `SUMMARY.md`):
 
@@ -92,7 +109,7 @@ Check top-level files that list or link to other docs (e.g., `README.md`, `docs/
 - Ensure the table of contents, if present, reflects the current set of files
 - If working in a subdirectory, also update any higher-level navigation files outside that subdirectory only when they directly reference files you changed or removed
 
-### Step 8: Validate
+### Step 9: Validate
 
 - Run any documentation linters or link-checkers configured in the repository (e.g., `markdownlint`, `lychee`)
 - Re-read changed files to confirm accuracy and consistency
@@ -107,6 +124,8 @@ Check top-level files that list or link to other docs (e.g., `README.md`, `docs/
 - [ ] Obsolete documentation files have been deleted or redirected
 - [ ] Index and navigation files (`README.md`, `SUMMARY.md`, etc.) reflect the current set of docs
 - [ ] No files outside the requested subdirectory were changed unless they needed navigation updates
+- [ ] Inline code comments that reference outdated behavior, removed features, or resolved TODOs have been removed or corrected
+- [ ] No comments that still provide accurate, non-obvious context were removed
 
 ## Common Pitfalls
 
@@ -118,3 +137,5 @@ Check top-level files that list or link to other docs (e.g., `README.md`, `docs/
 | Breaking the tone or style of existing docs | Preserve voice and formatting; only change factually incorrect content |
 | Missing docs in nested subdirectories | Use a recursive search rooted at the selected review root, such as `find <review_root> -name "*.md"` |
 | Leaving broken anchors after edits | Check heading IDs if other docs use anchor links (`#section-name`) |
+| Removing comments that still provide value | Only remove or rewrite comments that are factually wrong or entirely redundant; leave comments that explain non-obvious intent |
+| Deleting a TODO/FIXME that is still open | Verify the underlying issue is actually resolved before removing the marker |

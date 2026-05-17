@@ -44,9 +44,15 @@ laliden_skills/
 Install any skill from this library into your own repository with the GitHub CLI:
 
 ```bash
-gh skill install https://github.com/LarsLiden/skills/tree/main/skills/cleanup --scope user
-gh skill install https://github.com/LarsLiden/skills/tree/main/skills/document --scope user
-gh skill install https://github.com/LarsLiden/skills/tree/main/skills/fallback --scope user
+gh skill install LarsLiden/skills cleanup --scope user
+gh skill install LarsLiden/skills document --scope user
+gh skill install LarsLiden/skills fallback --scope user
+```
+
+The first argument is the repository in `OWNER/REPO` format and the second is the skill name. To install every skill from this repository interactively, omit the skill name:
+
+```bash
+gh skill install LarsLiden/skills --scope user
 ```
 
 This copies the skill into `.agents/skills/<skill-name>/` in your repository. Once installed, compatible agents (GitHub Copilot, Claude Code, Cursor, Kiro, and others) will discover and activate the skill automatically when your prompt matches its description.

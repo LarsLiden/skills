@@ -60,9 +60,11 @@ Confirm you are on the intended target branch (use the currently active branch).
 
 Also create an initial `MERGE_LOG.md` file in the repository root with the full PR queue listed as pending. This file will be updated after each PR merge to track progress, decisions, and test results.
 
-### Step 3: Apply one PR and detect meaningful conflicts
+### Step 3: Create a sub-branch and apply one PR
 
-For the current PR in the queue, apply it to the target branch. Identify whether conflicts are only mechanical/textual or whether they create a behavior choice in:
+Before applying the current PR, create an isolation branch from the target branch. If the target branch is `new` and the current PR is "A", create a branch named `new-A` (or `<target>-<PR-identifier>`). All conflict resolution and merge work for this PR happens on the sub-branch, keeping the target branch untouched until the merge is validated.
+
+On the sub-branch, apply the current PR. Identify whether conflicts are only mechanical/textual or whether they create a behavior choice in:
 
 - functionality (business logic, data flow, API behavior, validations)
 - user interface (layout, interaction pattern, labels, states, navigation)
@@ -83,9 +85,13 @@ Do not finalize the merge for that PR until the user chooses for all such confli
 
 If there is no functionality/UI behavior conflict (only straightforward merge resolution), proceed without asking.
 
-### Step 5: Finalize the merge for the current PR
+### Step 5: Finalize and merge the sub-branch back into the target
 
-After required choices are provided (or none are needed), complete the merge for that PR and ensure the branch is in a consistent, buildable state.
+After required choices are provided (or none are needed), complete the merge on the sub-branch and ensure it is in a consistent, buildable state.
+
+Once the sub-branch is confirmed working, merge it back into the target branch. This should be a clean fast-forward or trivial merge since the sub-branch was created from the target. After merging, delete the sub-branch to keep the workspace clean.
+
+If something went wrong during conflict resolution on the sub-branch, simply delete it and recreate a fresh sub-branch from the target to try again — the target branch remains untouched until this step succeeds.
 
 ### Step 6: Update merge log and offer manual test gate
 
@@ -109,6 +115,7 @@ Repeat Steps 3–6 until all queued `main` PRs are merged.
 - [ ] The ordered list of main PRs was confirmed before integration started
 - [ ] A `MERGE_LOG.md` was created with the full queue and updated after each PR merge
 - [ ] Each PR was applied individually (not batched into one giant merge)
+- [ ] Each PR was integrated on an isolation sub-branch before being merged back into the target
 - [ ] Every functionality/UI conflict was presented to the user before finalizing that PR merge
 - [ ] Conflict decisions referenced `BRANCH_CHANGES.md` to clarify what branch functionality was at stake
 - [ ] No user prompt was required when no functionality/UI behavior conflict existed
@@ -126,3 +133,5 @@ Repeat Steps 3–6 until all queued `main` PRs are merged.
 | Skipping manual testing checkpoints | Always ask for post-merge manual test approval before the next PR |
 | Losing track of completed vs pending PRs | Update `MERGE_LOG.md` after every PR merge with status, decisions, and test notes |
 | Losing context across sessions or team handoffs | Keep `MERGE_LOG.md` committed so progress and decisions survive interruptions |
+| Stacking sub-branches instead of merging back first | Always merge the current sub-branch back into the target and delete it before creating the next one; stacking removes the isolation benefit |
+| Resolving conflicts directly on the target branch | Always use a sub-branch so the target stays clean and bad merges can be discarded without affecting it |

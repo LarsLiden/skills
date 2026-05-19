@@ -43,11 +43,17 @@ Use this skill when a long-lived branch has diverged significantly from `main` a
 
 ### Step 1: Document current branch changes
 
-Before modifying any code, create a `BRANCH_CHANGES.md` file in the repository root that catalogs everything the current branch has added or changed since diverging from `main`. This file serves as a reference during every subsequent conflict decision and helps prevent accidental loss of branch-specific functionality.
+Before modifying any code, **fetch the latest remote state** so that all comparisons use the most recent `origin/main`, not a potentially stale local `main` branch:
+
+```
+git fetch origin main
+```
+
+Then create a `BRANCH_CHANGES.md` file in the repository root that catalogs everything the current branch has added or changed since diverging from `main`. This file serves as a reference during every subsequent conflict decision and helps prevent accidental loss of branch-specific functionality.
 
 The document must include:
 
-1. **Branch name and divergence point** — the branch name and the common ancestor commit with `main` (use `git merge-base`)
+1. **Branch name and divergence point** — the branch name and the common ancestor commit with `origin/main` (use `git merge-base HEAD origin/main`)
 2. **Commit / PR summary** — for each commit or PR merged into the branch since divergence, list the title, author, date, and a one-line functional summary
 3. **Grouped feature inventory** — organize the changes into categories: new features, bug fixes, UI changes, refactors, and other
 4. **Hotspot files** — list files with the most modifications on the branch, as these are the most likely sources of merge conflicts
@@ -56,7 +62,7 @@ Present the completed `BRANCH_CHANGES.md` to the user for review and confirmatio
 
 ### Step 2: Prepare and order the integration queue
 
-Confirm you are on the intended target branch (use the currently active branch). Gather the exact ordered list of `main` PRs to apply, or derive it from GitHub history if the user did not provide one, then present the proposed sequence for confirmation before changing code. Ensure each item has a resolvable commit reference and that the next action is always a single-PR integration step.
+Confirm you are on the intended target branch (use the currently active branch). If you did not already fetch in Step 1, run `git fetch origin main` now to ensure you are comparing against the latest remote `main`, not a stale local copy. Gather the exact ordered list of `origin/main` PRs to apply, or derive it from GitHub history if the user did not provide one, then present the proposed sequence for confirmation before changing code. Ensure each item has a resolvable commit reference and that the next action is always a single-PR integration step.
 
 Also create an initial `MERGE_LOG.md` file in the repository root with the full PR queue listed as pending. This file will be updated after each PR merge to track progress, decisions, and test results.
 
@@ -135,3 +141,4 @@ Repeat Steps 3–6 until all queued `main` PRs are merged.
 | Losing context across sessions or team handoffs | Keep `MERGE_LOG.md` committed so progress and decisions survive interruptions |
 | Stacking sub-branches instead of merging back first | Always merge the current sub-branch back into the target and delete it before creating the next one; stacking removes the isolation benefit |
 | Resolving conflicts directly on the target branch | Always use a sub-branch so the target stays clean and bad merges can be discarded without affecting it |
+| Comparing against a stale local `main` instead of `origin/main` | Always run `git fetch origin main` before any comparison and use `origin/main` (not the local `main` branch) for merge-base, commit listing, and PR derivation |

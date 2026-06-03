@@ -1,11 +1,25 @@
 ---
 name: cleanup-css
-description: Performs a deep analysis of a project's CSS to identify and consolidate duplication, extract repeated values (especially colors, spacing, fonts, and breakpoints) into custom properties or shared variables, and refactor styles so each rule has a single source of truth. Use when the user asks to clean up CSS, reduce duplicate styles, deduplicate selectors, extract design tokens, introduce CSS variables for colors, or remove places where the same value must be edited in multiple files.
+description: Performs a deep analysis of a project's CSS to identify and consolidate duplication, extract repeated values (especially colors, spacing, fonts, and breakpoints) into custom properties or shared variables, and refactor styles so each rule has a single source of truth — without changing the rendered UI by a single pixel. Use when the user asks to clean up CSS, reduce duplicate styles, deduplicate selectors, extract design tokens, introduce CSS variables for colors, or remove places where the same value must be edited in multiple files.
 ---
 
 # Cleanup CSS
 
 This skill audits the CSS in a repository (or a specified subdirectory) for duplication, scattered constants, and rules that force a developer to make the same change in multiple places. It then refactors the styles so shared values live in a single location — typically as CSS custom properties (`--var`) or preprocessor variables — and so each visual concern is defined exactly once. The outcome is a leaner, more maintainable stylesheet that behaves identically to before, plus a clear report of what was consolidated and why.
+
+## Core Invariant: Zero Visual Change
+
+**This refactor must not change a single pixel of the rendered UI.** Only the *structure* of the CSS (class names, variable names, selector grouping, file organization) may change. Every computed style on every element in every supported state and viewport must remain identical to what it was before the refactor.
+
+Concretely, that means:
+
+- The final computed color, background, font, spacing, border, shadow, transform, transition, and z-index of every element must match the pre-refactor values exactly (not "perceptually close" — bit-identical).
+- No selector's specificity, source order, cascade outcome, or media-query match set may change in a way that alters which declaration wins on any element.
+- No `:hover`, `:focus`, `:active`, `:disabled`, `:checked`, `[aria-*]`, dark-mode, RTL, print, or responsive-breakpoint state may render differently.
+- No animation timing, easing, or keyframe value may shift.
+- If any change cannot be proven visually neutral, do not make it — flag it for the user instead.
+
+Every step below is designed to preserve this invariant. The validation in Steps 8 and 9 is what *proves* it; do not skip them.
 
 ## When to Use
 
@@ -102,13 +116,18 @@ For each consolidation chosen in Step 3:
 
 ### Step 8: Validate that the rendered styles are unchanged
 
-After each batch of changes, confirm:
+After each batch of changes, **prove** that the UI is visually identical to the pre-refactor state — this is the core invariant of the skill, not a nice-to-have:
 
 - The build / bundler succeeds (`npm run build`, `vite build`, `next build`, `webpack`, the Sass compiler, etc., as applicable to the project)
 - Any existing CSS linters pass (`stylelint`, `prettier --check`, project-configured rules) with no new warnings
-- The existing test suite passes, including any visual regression / snapshot tests
-- Spot-check the pages / components touched: open them (or their stories / fixtures) and confirm the visual result is identical to before the refactor
+- The existing test suite passes, including any visual regression / snapshot tests (Percy, Chromatic, Playwright screenshots, Storybook snapshot tests, Jest CSS / DOM snapshots). If snapshot diffs appear, **do not auto-update them** — investigate; a diff means the invariant was broken.
+- Compare computed styles before vs. after on representative elements. Practical techniques, in order of preference when available:
+  - Run the project's visual-regression suite and require zero diffs
+  - Diff a build of the compiled CSS (e.g. `git stash` → rebuild → save output → unstash → rebuild → diff the two outputs). After normalizing for whitespace/comments, the *declaration sets per selector* should match, or any difference must be explainable purely by selector consolidation that produces the same cascade outcome.
+  - For variable substitutions specifically, confirm each new `var(--x)` resolves to the exact same literal it replaced (no fallback kicking in, no value drift from a rounding difference between `px` and `rem`).
+  - Spot-check the pages / components touched in a browser at multiple viewport widths and in every interactive state (`:hover`, `:focus`, `:active`, `:disabled`, `:checked`, dark mode if supported), and confirm the visual result is identical to before the refactor
 - Search the scope one more time for the original literal values; any remaining instances should be intentional and noted in the report
+- If *any* visual difference is detected — even one that looks like an improvement — revert that change and surface it in the report. The skill's contract is structural cleanup only; visual edits belong to a separate task.
 
 ### Step 9: Summarize what changed
 
@@ -128,6 +147,8 @@ Produce a final summary listing:
 - [ ] Only category 1 and 2 candidates were refactored automatically; categories 3 and 4 were flagged, not changed
 - [ ] Each consolidated rule block produces byte-equivalent declarations to the originals (no silent declaration changes)
 - [ ] Cascade order and specificity were preserved for every merged or moved rule
+- [ ] **Zero visual change confirmed**: computed styles, all interactive states, all breakpoints, and all themes render identically to the pre-refactor build (verified by visual-regression tests, compiled-CSS diff, and/or browser spot-checks — not assumed)
+- [ ] No snapshot or visual-regression test was updated to accept a new baseline; any such diff was treated as a failure and investigated
 - [ ] Build, CSS linter, and test suite pass after the changes
 - [ ] A summary of variables introduced, files updated, and items flagged for human review was produced
 
@@ -142,5 +163,8 @@ Produce a final summary listing:
 | Breaking the cascade by reordering rules during consolidation | Keep merged rules at a position where their specificity and source order still produce the same winners; verify with a visual spot-check |
 | Replacing `#fff` with `var(--color-white)` inside a context that has not imported the tokens file | Add the minimum import / `@use` / `<link>` needed; otherwise the variable resolves to its fallback or to `unset` |
 | Treating near-duplicate colors (`#1f6feb` vs `#1e6fea`) as the same value | Do not auto-merge perceptually close but non-identical values; flag them for the user to confirm whether they should unify |
+| Accepting a "tiny" visual diff because it looks like an improvement | The skill's contract is zero visual change. Revert the change and flag it; visual edits are a separate task |
+| Updating snapshot / visual-regression baselines to make tests pass | Never. A snapshot diff means the invariant was broken — investigate the cause, do not bless the new output |
+| Switching between equivalent-looking units (`16px` ↔ `1rem`) when extracting a variable | Keep the exact original unit unless the root font size is provably `16px` everywhere it matters; otherwise the computed pixel value can drift |
 | Deleting rules that look overridden | This skill consolidates, it does not delete dead rules. Flag them and defer to the `cleanup` skill |
 | Modifying compiled or vendored CSS | Operate on source stylesheets only; never edit build output or third-party bundles |

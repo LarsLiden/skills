@@ -34,6 +34,7 @@ laliden_skills/
 |-------|-------------|
 | [big-merge](skills/big-merge/SKILL.md) | Performs large branch reconciliation by applying mainline PRs one at a time with conflict checkpoints and manual-test approval gates |
 | [cleanup](skills/cleanup/SKILL.md) | Scans for dead code and unused tests, then removes them |
+| [cleanup-css](skills/cleanup-css/SKILL.md) | Deep-dives the project's CSS to consolidate duplicate styles and extract repeated values (colors, spacing, breakpoints) into shared variables |
 | [conflict-monitor](skills/conflict-monitor/SKILL.md) | Runs daily to detect potential feature-level conflicts between your work and teammates' changes in open PRs and main |
 | [create-skill](skills/create-skill/SKILL.md) | Scaffolds a new Agent Skill in this repository |
 | [document](skills/document/SKILL.md) | Updates documentation to reflect recent code changes |

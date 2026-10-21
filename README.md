@@ -40,6 +40,7 @@ laliden_skills/
 | [document](skills/document/SKILL.md) | Updates documentation to reflect recent code changes |
 | [fallback](skills/fallback/SKILL.md) | Finds and removes fallback behaviors that mask real bugs while preserving visible error handling |
 | [reccomended-refactors](skills/reccomended-refactors/SKILL.md) | Analyzes a repository for refactoring opportunities and produces a prioritized report |
+| [statusreport](skills/statusreport/SKILL.md) | Produces a read-only work-status table with descriptions, remaining agent-time estimates or Done, and an honest remaining total |
 
 ## Using Skills in Another Repository
 
@@ -50,6 +51,7 @@ gh skill install LarsLiden/skills cleanup --scope user
 gh skill install LarsLiden/skills conflict-monitor --scope user
 gh skill install LarsLiden/skills document --scope user
 gh skill install LarsLiden/skills fallback --scope user
+gh skill install LarsLiden/skills statusreport --agent github-copilot --scope user
 ```
 
 The first argument is the repository in `OWNER/REPO` format and the second is the skill name. To install every skill from this repository interactively, omit the skill name:
@@ -58,7 +60,7 @@ The first argument is the repository in `OWNER/REPO` format and the second is th
 gh skill install LarsLiden/skills --scope user
 ```
 
-This copies the skill into `.agents/skills/<skill-name>/` in your repository. Once installed, compatible agents (GitHub Copilot, Claude Code, Cursor, Kiro, and others) will discover and activate the skill automatically when your prompt matches its description.
+With `--scope user`, skills are installed in the selected agent's user-level directory and are available across projects on that computer. For GitHub Copilot, this is `~/.copilot/skills/<skill-name>/`. Run the install command on each computer; publishing a skill here does not automatically synchronize installations. Without `--scope user`, GitHub Copilot uses the repository's `.agents/skills/<skill-name>/` directory. Once installed, compatible agents discover skills when they load their configuration; start a new session if an existing session has not refreshed its skill list.
 
 ## Adding a Skill
 

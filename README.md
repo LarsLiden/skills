@@ -40,7 +40,7 @@ laliden_skills/
 | [document](skills/document/SKILL.md) | Updates documentation to reflect recent code changes |
 | [fallback](skills/fallback/SKILL.md) | Finds and removes fallback behaviors that mask real bugs while preserving visible error handling |
 | [reccomended-refactors](skills/reccomended-refactors/SKILL.md) | Analyzes a repository for refactoring opportunities and produces a prioritized report |
-| [statusreport](skills/statusreport/SKILL.md) | Produces a read-only work-status table with descriptions, remaining agent-time estimates or Done, and an honest remaining total |
+| [statusreport](skills/statusreport/SKILL.md) | Produces a read-only work-status table with descriptions, original conversation estimates beside remaining agent-time estimates or Done, and an honest remaining total |
 
 ## Using Skills in Another Repository
 

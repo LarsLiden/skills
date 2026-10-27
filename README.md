@@ -2,6 +2,10 @@
 
 A personal library of [Agent Skills](https://agentskills.io/specification) for software development — reusable instruction sets that teach coding agents how to perform specialised tasks.
 
+The repository also contains separately installable Copilot desktop extensions.
+For phone notifications and two-way agent messaging, see the
+[Telegram bridge installation and setup guide](extensions/telegram-bridge/README.md).
+
 ## What is an Agent Skill?
 
 An Agent Skill is a directory containing a `SKILL.md` file with:
@@ -22,6 +26,10 @@ laliden_skills/
 │       └── assets/          # Optional: templates and data files
 ├── skill-template/
 │   └── SKILL.md             # Starter template for new skills
+├── extensions/              # Copilot desktop extensions (not Agent Skills)
+│   └── telegram-bridge/
+│       ├── README.md        # Installation, pairing, usage and troubleshooting
+│       └── extension.mjs    # Copilot runtime entrypoint
 ├── scripts/
 │   ├── new-skill.sh         # Scaffold a new skill
 │   └── validate_manifests.py # Validate SKILL.md files
@@ -71,6 +79,24 @@ python scripts/validate_manifests.py
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+## Copilot Desktop Extensions
+
+| Extension | Description |
+|-----------|-------------|
+| [telegram-bridge](extensions/telegram-bridge/README.md) | Windows phone notifications, exact question answers, first/final agent replies and per-session Telegram topics |
+
+Extensions do **not** use `gh skill install`. In Copilot desktop, ask:
+
+```text
+Install this Copilot canvas extension at user scope:
+https://github.com/LarsLiden/skills/tree/main/extensions/telegram-bridge
+```
+
+Follow the extension's README to create a dedicated bot and pair your phone.
+Use one bot per simultaneously active computer, and never copy or commit its
+local `artifacts` directory. User-scope installations apply across projects on
+that computer, but are not automatically synchronized to other computers.
 
 ## Documentation
 

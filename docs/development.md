@@ -29,7 +29,19 @@ This checks every `skills/*/SKILL.md`:
 
 ## CI
 
-The GitHub Actions workflow at `.github/workflows/ci.yml` runs on every push and pull request, executing `scripts/validate_manifests.py` against all skills. It must pass before a PR can be merged.
+The GitHub Actions workflow at `.github/workflows/ci.yml` runs on pushes and pull
+requests targeting `main`, executing `scripts/validate_manifests.py` against all
+skills. It must pass before a PR can be merged.
+
+## Copilot Desktop Extensions
+
+Extensions live separately under `extensions/`, not `skills/`, and do not use
+`SKILL.md` or `gh skill install`. See the
+[Telegram bridge README](../extensions/telegram-bridge/README.md) for installation
+and its [development guide](../extensions/telegram-bridge/DEVELOPMENT.md) for tests.
+The path-scoped `.github/workflows/telegram-bridge.yml` checks JavaScript syntax
+and runs isolated Node tests on Windows. Credentials and runtime artifacts are
+never test prerequisites and must not be published.
 
 ## Optional Subdirectories
 

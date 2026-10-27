@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Telegram bridge</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/ui.mjs"></script>
+</head>
+<body>
+<main>
+  <header><span class="eyebrow">PERSONAL COPILOT EXTENSION</span><h1>Telegram bridge</h1>
+    <p>Get questions on your phone. Reply to the exact session.</p></header>
+  <div id="notice" role="status" aria-live="polite">Loading local bridge...</div>
+  <section>
+    <h2 id="bot-heading">1. Bot connection</h2>
+    <p id="bot-status" class="muted"></p>
+    <p id="connection-help"></p>
+    <div id="bot-setup" hidden>
+      <p id="new-bot-help">In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">BotFather</a>,
+        send <code>/newbot</code>, and follow its instructions. Paste the resulting token here,
+        <strong>not into Copilot chat</strong>.</p>
+      <p id="replace-bot-help" class="warning" hidden>Only do this to replace your saved bot.
+        Saving a replacement disconnects the current bot and clears phone pairing and session selections.
+        To reconnect the same bot, cancel and use Connect saved bot. Never paste tokens into Copilot chat.</p>
+      <label for="token">Bot token</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="Stored using Windows user encryption">
+      <div class="buttons">
+        <button id="configure">Save token and connect</button>
+        <button id="cancel-bot" class="secondary" hidden>Cancel</button>
+      </div>
+    </div>
+    <div class="buttons">
+      <button id="connect" hidden>Connect saved bot</button>
+      <button id="stop" class="secondary" hidden>Disconnect</button>
+      <button id="change-bot" class="secondary" hidden>Replace saved bot</button>
+    </div>
+  </section>
+  <section>
+    <h2 id="phone-heading">2. Phone pairing</h2>
+    <p id="pair-help"></p>
+    <button id="pair" hidden>Generate pairing link</button>
+    <p id="pair-link"></p>
+    <p id="candidate"></p>
+    <button id="confirm" hidden>Confirm this phone account</button>
+    <p id="peer" class="muted"></p>
+  </section>
+  <section>
+    <div class="section-heading"><h2>3. Choose sessions</h2><button id="refresh" class="secondary" disabled>Refresh sessions</button></div>
+    <p id="session-help" class="muted">Connect your bot to manage sessions.</p>
+    <p>Opt-in shares the session name, question text and answer choices with Telegram.
+      Bot chats are <strong>not end-to-end encrypted</strong>. Only select sessions whose questions
+      are suitable for Telegram. Idle notifications also share the latest assistant reply when enabled.
+      Full conversations, reasoning, files and tool arguments are not forwarded.</p>
+    <label class="check"><input id="idle" type="checkbox" disabled>When an opted-in session goes idle, send its last assistant reply</label>
+    <p class="muted">Idle does not prove success: the agent may be finished or blocked.
+      After installing the listener, reload extensions in the monitored sessions once, or restart the app.
+      It captures future replies only; earlier messages are not replayed.</p>
+    <div id="sessions"></div>
+    <p id="missing" class="muted"></p>
+  </section>
+  <section>
+    <h2>4. Session topics</h2>
+    <p id="topics-help">In BotFather, enable private-chat topics for your existing bot.
+      Then use Enable session topics here. The bridge creates a Bridge topic and one topic per selected session.
+      Your existing messages stay where they are; no new bot or pairing is needed.</p>
+    <button id="enable-topics" disabled>Enable session topics</button>
+    <p id="topics-status" class="muted"></p>
+    <p class="muted">Deselecting a session permanently deletes its Telegram topic and all messages.
+      Confirmed archived/deleted Copilot sessions are also cleaned up automatically.
+      Idle or temporarily unavailable sessions are kept; Bridge is never deleted.
+      Sync session topics retries only explicitly rejected topic operations.
+      Uncertain creation, rename or deletion outcomes require inspection and are not retried automatically.</p>
+  </section>
+  <section>
+    <h2>On your phone</h2>
+    <p>Tap a choice or use Telegram's <strong>Reply</strong> on the original question.
+      Send <code>/status</code> to see selected sessions, or
+      <code>/tell 042 Your instruction</code> in Bridge for a new message.
+      Replace <code>042</code> with the session's three-digit code, including leading zeros.</p>
+    <p>Inside a session topic, just type your message or reply to a non-question message.
+      No <code>/tell</code> prefix is required.
+      <code>/status</code> shows that session; in Bridge it shows all selected sessions.
+      Continue to answer questions using their buttons or Telegram Reply, not unaddressed text.
+      A code for another session is rejected inside a session topic.</p>
+    <p>After a phone message or question answer, the first public reply is sent as soon as captured
+      (<strong>* REPLY *</strong>); the final result still follows at idle when idle notices are enabled.
+      Reload the extension in this hub and monitored sessions to enable first-reply capture.</p>
+    <p>Plans, permissions and forms stay in Copilot. Unsupported prompts produce an alert
+      when exposed by the app; tool-permission alert coverage is not yet qualified.
+      This bridge never enables blanket approvals.</p>
+    <p>Keep this hub session and the computer running. Closing or reopening this panel does not disconnect the bot.
+      After an app/session restart, use <strong>Connect saved bot</strong>. Your bot, phone pairing
+      and session selections are retained; old queued commands are discarded.</p>
+    <p id="health" class="muted"></p>
+    <p id="unresolved" class="warning"></p>
+    <button id="forget" class="danger">Forget token, phone and session selections</button>
+  </section>
+</main>
+</body>
+</html>

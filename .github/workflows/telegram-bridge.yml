@@ -1,0 +1,43 @@
+name: Telegram bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extensions/telegram-bridge/**"
+      - ".github/workflows/telegram-bridge.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "extensions/telegram-bridge/**"
+      - ".github/workflows/telegram-bridge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Windows extension tests
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: extensions/telegram-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check JavaScript syntax
+        run: |
+          Get-ChildItem -File -Filter '*.mjs' | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Syntax check failed: $($_.Name)" }
+          }
+      - name: Run isolated tests
+        run: |
+          $tests = @(Get-ChildItem -File -Filter '*.test.mjs' | ForEach-Object FullName)
+          if ($tests.Count -eq 0) { throw "No extension tests found." }
+          node --test --test-concurrency=1 @tests
+          if ($LASTEXITCODE -ne 0) { throw "Extension tests failed." }

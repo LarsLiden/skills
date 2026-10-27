@@ -117,3 +117,19 @@ Keep `SKILL.md` to **500 lines or fewer**. Move long reference material to a `re
 1. Ensure `python scripts/validate_manifests.py` passes locally.
 2. Fill in the PR template completely.
 3. One skill addition/change per PR where practical.
+
+## Copilot Desktop Extensions
+
+Desktop extensions live in `extensions/<extension-name>/`, outside `skills/`.
+They have an `extension.mjs` entrypoint and a README covering installation,
+requirements, setup and validation; they do not need a `SKILL.md`.
+
+Use the app's repository-folder extension installer, not `gh skill install`.
+Keep runtime credentials, pairing, sessions, caches and receipts out of Git.
+For the Telegram bridge, publish only top-level source/test/documentation files;
+its ignored `artifacts/` directory must remain local to each installation.
+
+Run the extension's documented tests on its supported platform and retain
+separate live-integration limitations. The Telegram bridge Windows CI and the
+existing skill-manifest CI must pass. In the PR checklist, mark skill-only items
+as N/A for an extension-only change rather than adding a placeholder skill.

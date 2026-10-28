@@ -176,6 +176,13 @@ session topics visible in live use; recreating the topics was not necessary.
 - In a session topic, ordinary text and non-question replies address that session.
   `/tell Your instruction` remains optional. An explicit matching three-digit code also works; a code for another
   session is rejected. Use Bridge for `/tell 042 Your instruction` across sessions.
+- The incoming `message_thread_id` supplies the topic identity; a highlighted
+  topic in the phone UI is not a routing input. When Telegram omits that field,
+  ordinary text without an explicit destination is rejected with instructions
+  to use Reply on a non-question bot message in the intended topic or `/tell`.
+  Missing topic identity is never replaced with the last active session, a
+  display name or an inferred destination. A fresh `/status` command can check
+  topic routing without dispatching an agent prompt.
 - `/status` in a session topic reports that session. In Bridge it lists all
   selected sessions. Command replies stay with the originating conversation.
 - Answer a question with its buttons or Telegram **Reply**. The original question,

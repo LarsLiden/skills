@@ -153,6 +153,14 @@ are retained; a failed lookup is not proof of deletion. The Bridge topic remains
 | Check sessions | Send `/status`. Inside a session topic it shows that session; in Bridge it lists your selections. |
 | Show help | Send `/help`. |
 
+Session routing depends on the topic information Telegram includes, not the
+topic name visible on your phone. If the bridge reports **no session destination**,
+select a recent **non-question bot message** in the intended session topic and
+choose **Reply** before sending a new instruction. Alternatively, use an explicit
+`/tell 042 ...` destination. The bridge never guesses a session from an
+unaddressed message. You can compare these paths safely with `/status`, which
+reports bridge status without sending an instruction to an agent.
+
 After a phone message or answer:
 
 - The bridge acknowledges app acceptance. That acknowledgment is **not** an

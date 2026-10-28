@@ -654,8 +654,9 @@ export class Bridge {
             await this.tell(update.update_id, this.state.sessions[context.sessionId].alias, text, threadId, receipt);
             return;
         }
-        await respond("Reply to the original question message, or use /tell CODE Your message with the exact three-digit code from /status. " +
-            "Old longer codes are no longer accepted. Nothing was sent to Copilot.");
+        await respond("This message has no session destination. For a new instruction, select a non-question bot message " +
+            "in the intended session topic and choose Reply, or use /tell CODE Your message with the exact three-digit code from /status. " +
+            "To answer a pending question, Reply to that exact question. Nothing was sent to Copilot.");
     }
 
     async answer(request, answer, receipt) {

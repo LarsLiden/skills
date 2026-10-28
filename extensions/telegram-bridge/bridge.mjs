@@ -438,10 +438,14 @@ export class Bridge {
     }
 
     questionText(selected, q, threadId) {
+        const instructions = !q.choices.length
+            ? "\nReply to this message with your answer: in Telegram, select this message and choose Reply, then type and send. " +
+                "Typing a regular message does not answer this question."
+            : q.allowFreeform ? "\nTap a choice or Reply to this message with your answer."
+                : "\nTap a choice or Reply with the exact choice text.";
         return `${sessionHeading(selected, threadId)}\n\n${q.question}\n` +
             (q.choices.length ? "\n" + q.choices.map((c, i) => `${i + 1}. ${c}`).join("\n") + "\n" : "") +
-            (q.allowFreeform ? "\nTap a choice or Reply to this message with your answer." :
-                "\nTap a choice or Reply with the exact choice text.");
+            instructions;
     }
 
     async receive(update) {
@@ -703,7 +707,9 @@ export class Bridge {
         if (receipt) await this.save();
         const row = await this.app.get(id);
         if (!row || row.id !== id || retirement(row) || row.awaiting_user_input || row.awaiting_plan_approval || row.awaiting_permission) {
-            await respond("That session is unavailable or awaiting a decision. Answer its exact question or use the app; no new prompt was sent.");
+            await respond("That session is unavailable or awaiting a decision. To answer a question shown in Telegram, " +
+                "select that question and choose Reply, then type and send your answer. " +
+                "Replying to an older message does not answer the question. Otherwise use the Copilot app; no new prompt was sent.");
             return;
         }
         const firstReply = this.armFirstReply(id, "message", message);

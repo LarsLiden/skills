@@ -158,6 +158,46 @@ test("topic messages preserve exact question answers and reject stale or cross-t
     assert.deepEqual(f.messages, [["session-a", "New request"]]);
 });
 
+test("free-text topic answers reject older replies with actionable question instructions", async () => {
+    const f = await fixture();
+    await f.bridge.enableTopics();
+    pending(f.rows[0]);
+    f.rows[0].awaiting_input.choices = [];
+    await f.bridge.sync();
+    const request = Object.values(f.bridge.state.requests)[0];
+    const question = f.sent[request.messageId - 1];
+    assert.equal(question.message_thread_id, f.route("session-a"));
+    assert.equal(question.reply_markup, undefined);
+
+    await f.receive("Plain answer", f.route("session-a"));
+    assert.match(f.sent.at(-1).text, /select that question and choose Reply/);
+    await f.receive("Older-message answer", f.route("session-a"),
+        { reply_to_message: { message_id: 9999 } });
+    assert.match(f.sent.at(-1).text, /older message does not answer the question/);
+    await f.receive("Cross-topic answer", f.route("session-b"),
+        { reply_to_message: { message_id: request.messageId } });
+    assert.equal(f.answers.length, 0);
+    assert.equal(f.messages.length, 0);
+
+    await f.receive("Bound free-text answer", f.route("session-a"),
+        { reply_to_message: { message_id: request.messageId } });
+    assert.deepEqual(f.answers, [["session-a", "q-session-a", "Bound free-text answer"]]);
+    assert.equal(f.messages.length, 0);
+
+    await f.receive("Do not replay", f.route("session-a"),
+        { reply_to_message: { message_id: request.messageId } });
+    assert.equal(f.answers.length, 1);
+    f.rows[0].awaiting_input.request_id = "replacement";
+    await f.bridge.sync();
+    const replacement = Object.values(f.bridge.state.requests).find(r => r.requestId === "replacement");
+    f.rows[0].awaiting_input.request_id = "newer-replacement";
+    await f.receive("Changed question", f.route("session-a"),
+        { reply_to_message: { message_id: replacement.messageId } });
+    assert.equal(f.answers.length, 1);
+    assert.equal(f.messages.length, 0);
+    assert.equal(replacement.state, "stale");
+});
+
 test("topic messages keep Bridge commands explicit and do not send unsupported slash commands to an agent", async () => {
     const f = await fixture();
     await f.bridge.enableTopics();

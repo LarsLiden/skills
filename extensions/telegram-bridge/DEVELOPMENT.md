@@ -52,6 +52,14 @@ Phone notifications still depend on Telegram and the phone's notification/Focus 
 ## Phone controls
 
 - Tap a question's choice button, or use Telegram **Reply** on that question.
+- Questions with no choices explain how to select the exact question and choose
+  Telegram **Reply** before typing. They omit reply markup to preserve in-place
+  answer updates: Telegram only permits
+  [editing messages](https://core.telegram.org/bots/api#updating-messages) without
+  markup or with inline keyboards, not standalone ForceReply messages. Choice
+  questions retain their inline buttons. The original question message,
+  session, topic and current app request must still match; ordinary messages and
+  replies to earlier results remain blocked with explicit Reply guidance.
 - In a session topic, type an ordinary message or use **Reply** on a non-question
   message; no `/tell` prefix is required. After a new message or question answer,
   the first public reply appears as **\* REPLY \*** as soon as captured.

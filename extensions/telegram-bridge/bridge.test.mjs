@@ -102,6 +102,50 @@ test("text replies support freeform without routing unaddressed text", async () 
     assert.deepEqual(f.answers, [["session-a", "request-1", "Use a third option."]]);
 });
 
+test("free-text questions explain exact Reply without uneditable markup", async () => {
+    for (const input of [pending(), nativePending()]) {
+        const f = await fixture();
+        f.app.rows = [row({ ...input, choices: [] })];
+        await f.bridge.sync();
+        assert.equal(f.sent[0].reply_markup, undefined);
+        assert.match(f.sent[0].text, /Reply to this message with your answer/);
+        assert.match(f.sent[0].text, /select this message and choose Reply/);
+        assert.match(f.sent[0].text, /regular message does not answer this question/);
+        assert.doesNotMatch(f.sent[0].text, /Tap a choice/);
+        await f.bridge.receive(reply(1, "An exact free-text answer."));
+        assert.deepEqual(f.answers, [["session-a", "request-1", "An exact free-text answer."]]);
+        assert.equal(f.messages.length, 0);
+    }
+});
+
+test("choice questions keep inline buttons without opening a free-text composer", async () => {
+    for (const allow_freeform of [true, false]) {
+        const f = await fixture();
+        f.app.rows = [row({ ...nativePending(), allow_freeform })];
+        await f.bridge.sync();
+        assert.equal(f.sent[0].reply_markup.inline_keyboard.length, 2);
+        assert.equal(f.sent[0].reply_markup.force_reply, undefined);
+        assert.match(f.sent[0].text, /Tap a choice/);
+    }
+});
+
+test("free-text question messages remain editable for confirmed answers", async () => {
+    const f = await fixture();
+    f.app.rows = [row({ ...nativePending(), choices: [] })];
+    f.bridge.telegram.edit = async (chat, messageId) => {
+        const markup = f.sent[messageId - 1].reply_markup;
+        if (markup && !markup.inline_keyboard) {
+            throw new Error("Telegram cannot edit messages with non-inline reply markup.");
+        }
+        return { message_id: messageId, chat: { id: chat } };
+    };
+    await f.bridge.sync();
+    await f.bridge.receive(reply(1, "Keep the confirmed answer visible."));
+    const request = Object.values(f.disk().requests)[0];
+    assert.equal(request.state, "answered");
+    assert.equal(request.messageUpdate.state, "sent");
+});
+
 test("replaced, changed and resolved questions reject stale answers", async () => {
     for (const input of [pending("request-2"), pending("request-1", "Changed?"), null]) {
         const f = await fixture();

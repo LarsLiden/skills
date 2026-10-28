@@ -145,7 +145,8 @@ are retained; a failed lookup is not proof of deletion. The Bridge topic remains
 
 | Action | What to do |
 | --- | --- |
-| Answer an agent question | Tap its choice button, or use Telegram **Reply** on that exact question. |
+| Answer a multiple-choice question | Tap its choice button, or use Telegram **Reply** on that exact question. |
+| Answer a free-text question | Select that exact question in Telegram and choose **Reply**, then type and send your answer. |
 | Send a new instruction | Type normally inside the session's topic. **No `/tell` prefix is needed.** |
 | Reply to an idle/result message | Use Telegram Reply inside its session topic; only your new text is sent. |
 | Send from Bridge or without topics | Use `/tell 042 Your instruction`, replacing `042` with the exact three-digit code from `/status`. |
@@ -166,6 +167,10 @@ After a phone message or answer:
 Plans, permissions and structured forms stay in Copilot. Ordinary text does not
 bypass a pending decision, and stale question replies are rejected. An uncertain
 app action or Telegram send is recorded rather than automatically replayed.
+Before sending an answer, check that the reply preview identifies the current
+question, not an earlier result or topic message. Typing a regular message does
+not answer a pending question. Once answered, the original question is updated
+to show the answer.
 
 ## Multiple computers
 

@@ -477,7 +477,18 @@ no file contents, is separate from hub ownership and is released by the OS if
 its owner exits; there is no persistent lock file to delete or take over.
 
 File operations wait for exclusive access for up to five seconds. A timeout
-fails explicitly without running the blocked operation. The existing serialized
+fails explicitly without running the blocked operation. Waiting callers connect
+to the current owner's pipe and wake when it closes, instead of competing on
+10-25 millisecond timers that can miss brief release windows. Closure is only a
+wakeup: every caller must still acquire its own exclusive pipe before touching
+the file. The deadline covers the entire acquisition, is not restarted by a
+wakeup, and does not permit a timed-out operation to run later. Owner release
+closes waiting connections; timeout disconnects its waiter. Owner process/worker
+exit releases the same OS resource without stale files or delegated lock ownership.
+No pipe payload, native addon, external daemon or new dependency is required.
+This is not a strict FIFO scheduling guarantee.
+
+The existing serialized
 hub remains responsible for write ordering and action receipts. Saves still
 replace a complete temporary file atomically: no in-place truncation,
 delete-then-rename workaround or automatic retry of a failed save or Telegram
@@ -507,11 +518,13 @@ real user credentials, or a live Copilot session. The runtime entrypoint is load
 by Copilot, not by running `node extension.mjs`. The repository's Windows CI
 checks JavaScript syntax and runs these tests.
 
-The concurrent-reader stress case has an intermittent pre-existing `EBUSY`
-failure tracked in [LarsLiden/skills#11](https://github.com/LarsLiden/skills/issues/11).
-It reproduces on the published source as well as the inbound-receipt candidate.
-Keep a failing storage result distinct from passing routing/UI tests; this
-tracking entry neither passes that gate nor authorizes a timeout increase.
+The release-notified locking regression covers
+[LarsLiden/skills#11](https://github.com/LarsLiden/skills/issues/11). Keep the
+eight-reader/300-replacement stress case, explicit acquisition-timeout test,
+owner-exit checks and external-lock failure checks. Test reader rejections are
+handled immediately and still fail the test, rather than becoming late unhandled
+promise rejections. Neither a passing routing test nor issue tracking substitutes
+for storage verification.
 
 Live acceptance is separate: extension discovery, app RPC access, a dedicated
 Telegram bot paired by the user, locked-phone delivery and an actual question

@@ -247,7 +247,7 @@ artifacts; the manual source-only update above makes that boundary explicit.
 | An incoming message never reached Copilot | Inspect its recent inbound receipt and polling health. A failed app preflight is recorded as not sent; no unknown action is automatically replayed. Old messages without receipts remain unverified. |
 | Messages arrive but the first/final response does not | Ensure the monitored session, not only the hub, loaded the latest extension. Check its capture warnings; missing or ambiguous input attribution is not guessed. |
 | Bot conflict or disconnected receiver | Ensure no other computer or application is using that bot token. Use separate bots. |
-| State-file `EPERM` or access timeout | Load current file-access coordination in every provider by restarting Copilot when safe. External file locks can still fail; preserve state and investigate instead of deleting it. |
+| State-file `EPERM` or access timeout | Load release-notified file-access coordination in every provider by restarting Copilot when safe, not just reopening the hub. Its five-second limit is unchanged. External file locks can still fail; preserve state and investigate instead of deleting it. |
 | Uncertain action, notification or question update | Inspect the original Copilot/Telegram result. Do not clear receipts, recreate topics or resend automatically. |
 | No alert while phone is locked | Check Telegram notification permissions, muted chats/topics, Focus mode, and whether the computer is awake and online. |
 

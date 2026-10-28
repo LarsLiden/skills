@@ -1,10 +1,33 @@
 import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createServer, createConnection } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { setTimeout as wait } from "node:timers/promises";
 import { initialState } from "./bridge.mjs";
+
+const accessTimeout = () => Object.assign(
+    new Error("Bridge file access timed out; no file operation was performed."), { code: "EBUSY" });
+
+function waitForRelease(address, deadline) {
+    return new Promise((done, reject) => {
+        const socket = createConnection(address);
+        let finished = false;
+        const finish = error => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            socket.destroy();
+            if (error) reject(error); else done();
+        };
+        const timer = setTimeout(() => finish(accessTimeout()), Math.max(0, deadline - performance.now()));
+        socket.once("error", error => {
+            // The owner can release or exit between our busy result and this connection.
+            finish(["ENOENT", "ECONNREFUSED", "ECONNRESET"].includes(error.code) ? null : error);
+        });
+        socket.once("close", () => finish());
+        socket.resume();
+    });
+}
 
 export async function withFileAccess(path, operation) {
     if (process.platform !== "win32") return operation();
@@ -12,19 +35,31 @@ export async function withFileAccess(path, operation) {
     const address = `\\\\.\\pipe\\copilot-telegram-file-${hash}`;
     const deadline = performance.now() + 5000;
     while (true) {
-        const server = createServer(socket => socket.destroy());
+        if (performance.now() >= deadline) throw accessTimeout();
+        const waiters = new Set();
+        let releasing = false;
+        const server = createServer(socket => {
+            socket.on("error", () => socket.destroy());
+            socket.once("close", () => waiters.delete(socket));
+            if (releasing) socket.destroy();
+            else { waiters.add(socket); socket.resume(); }
+        });
         const acquired = await new Promise((done, reject) => {
             server.once("error", error => error.code === "EADDRINUSE" ? done(false) : reject(error));
             server.listen(address, () => done(true));
         });
         if (acquired) {
-            try { return await operation(); }
-            finally { await new Promise((done, reject) => server.close(error => error ? reject(error) : done())); }
+            try {
+                if (performance.now() >= deadline) throw accessTimeout();
+                return await operation();
+            } finally {
+                releasing = true;
+                const closed = new Promise((done, reject) => server.close(error => error ? reject(error) : done()));
+                for (const socket of waiters) socket.destroy();
+                await closed;
+            }
         }
-        if (performance.now() >= deadline) {
-            throw Object.assign(new Error("Bridge file access timed out; no file operation was performed."), { code: "EBUSY" });
-        }
-        await wait(10 + Math.floor(Math.random() * 15));
+        else await waitForRelease(address, deadline);
     }
 }
 

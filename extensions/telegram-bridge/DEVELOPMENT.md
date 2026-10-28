@@ -68,7 +68,60 @@ Phone notifications still depend on Telegram and the phone's notification/Focus 
 - `/status` lists opted-in sessions and their three-digit numeric codes.
 - `/tell 042 Your instruction` sends a new message to that exact opted-in
   session, unless it is currently awaiting a decision.
+- Fresh ordinary text without a destination offers per-message session buttons.
+  Nothing is dispatched until a valid tap, even with only one selected session.
+  Cancellation discards that unsent message, not an agent's job.
 - `/help` describes the commands. There is no broadcast or blanket approval.
+
+### Per-message destination choices
+
+The missing-destination flow applies only to fresh ordinary text in Bridge or
+the main private chat, including when Telegram omits topic metadata. Valid
+session topics still dispatch directly. Commands, unknown/inactive/retired
+topics, stale question replies and unmatched non-topic replies do not become
+picker-based actions. Exact question-answer routing takes precedence and is
+unchanged. Choosing a destination is never approval of a pending question, plan,
+permission or form.
+
+The source `inbound` receipt stores `destinationChoice` metadata: a random key,
+bot/chat/thread, chooser message ID, offered session IDs/codes/names/selection
+identities and state. Raw incoming text lives only in the hub's
+`pendingDestinations` Map, keyed to that original update, and is never serialized,
+logged or placed in callback data. The chooser replies to the original Telegram
+message without copying its body. A durable `notifying` checkpoint precedes the
+send; a positive exact chat/message/topic result and a successful pending save
+are required before buttons can act.
+
+Eight sessions per page plus Previous/Next and Cancel cover the entire 1,000-code
+namespace without omitting selections. The `d:<key>:s<code>`, `d:<key>:p<page>`
+and `d:<key>:cancel` callbacks are distinct from question-choice callbacks and
+fit Telegram's 64-byte limit. Every callback checks the paired sender, original
+bot-authored chooser message/chat/thread, nonce, source hash and offered identity.
+Changing/deselecting/reselecting a session invalidates its old offer, even though
+its numeric code remains reserved. Names never select destinations. Page edits
+affect only that chooser; no app action occurs, and uncertain edits are recorded
+without automatic retry.
+
+A valid selection consumes the buffer and saves `chosen` plus its callback
+update ID before the existing `tell` preflight/dispatch. The callback receipt
+links `sourceUpdateId`; only its app outcome can establish acceptance. The app
+is rechecked and existing decision/retirement guards still apply. The actual
+original text, including whitespace, feeds first-reply capture and app dispatch;
+captured responses go to the selected session's topic. Receiving must remain
+enabled after preflight and the attempt checkpoint. A pause before app dispatch
+records `not-sent`, including the command/capture intent when already created.
+Telegram acknowledgment or chooser-edit failure cannot undo confirmed app
+acceptance or make the consumed message replayable.
+
+Disconnect, fresh connection, restart, receiving/storage-failure pause, use,
+cancel and source-receipt pruning discard buffered text. Pending choices expire
+on load without restoring any payload. A late send result cannot recreate a
+buffer discarded by a pause. The normal 200-completed-inbound-receipt bound also
+bounds active choice buffers; there is no new timed message queue or automatic
+retry. Old buttons explain that a fresh message is needed. A retained uncertain
+notification never restores dispatch authority. No old rejected message is
+reconstructed. These paths require only the updated hub provider and explicit
+saved-bot reconnection; the monitored-session listeners are unchanged.
 
 ### First reply after a phone message or answer
 
@@ -178,8 +231,9 @@ session topics visible in live use; recreating the topics was not necessary.
   session is rejected. Use Bridge for `/tell 042 Your instruction` across sessions.
 - The incoming `message_thread_id` supplies the topic identity; a highlighted
   topic in the phone UI is not a routing input. When Telegram omits that field,
-  ordinary text without an explicit destination is rejected with instructions
-  to use Reply on a non-question bot message in the intended topic or `/tell`.
+  fresh ordinary text without an explicit destination offers the session buttons
+  described above and waits for an explicit choice. Reply on a non-question bot
+  message in the intended topic or `/tell` can also supply a destination.
   Missing topic identity is never replaced with the last active session, a
   display name or an inferred destination. A fresh `/status` command can check
   topic routing without dispatching an agent prompt.
@@ -286,7 +340,7 @@ retained locally and never automatically replayed.
 Before routing an authenticated paired-account update, the hub atomically saves
 its update watermark and an `inbound` receipt. Receipt fields include Telegram
 update/message/topic/reply IDs, bot/chat, receipt time, Telegram date, kind and a
-content hash. Incoming text and callback payloads are not retained. Foreign,
+content hash. Incoming text and raw callback payloads are not persisted. Foreign,
 forwarded, group and bot-sender data does not enter this history. Destination and
 exact question identity are saved before app preflight; app attempts are saved
 before dispatch. Validation/rejection responses explain non-dispatch. A failed
@@ -309,6 +363,11 @@ Completed error-free inbound history is bounded to 200 records; failures,
 interrupted and uncertain records are retained. The panel and read-only canvas
 status show the latest 20. Records cannot establish delivery of older inputs
 that were never journaled, and reconnect's explicit discard boundary is unchanged.
+Destination-choice metadata remains separate from app delivery. The status shows
+the count of pending destination messages and source/callback update links,
+never the buffered text. A handled chooser does not count as an accepted app
+message. Interrupted page edits remain in `pageUpdate` with their original
+attempt or uncertain state; their callbacks cannot dispatch an instruction.
 
 `health` separates current-runtime `poll`, `monitor`, `inbound`, `reply` and
 `action` errors and observations. Polling records the attempted offset, latest
@@ -395,7 +454,9 @@ superseded or revoked deliveries cannot select a destination. Notifications sent
 this feature loaded have no message-ID receipts and are not guessed from their
 text. In a session topic this is not a blocker: type a message normally or reply
 to any non-question message, and the topic selects the session. Bridge/main-chat
-messages without an exact retained reply target still need `/tell CODE ...`.
+fresh messages without an exact retained reply target offer destination buttons
+or can use `/tell CODE ...`. An unmatched reply must be canceled before typing
+a fresh message for the picker.
 Nothing infers a question answer from an old notification or retries a previously
 uncertain app command.
 

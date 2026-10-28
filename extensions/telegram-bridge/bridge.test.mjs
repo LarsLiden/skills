@@ -36,7 +36,7 @@ async function fixture() {
         botId: 100,
         async send(chat, text, extra = {}) {
             sent.push({ chat, text, ...extra });
-            return { message_id: sent.length };
+            return { message_id: sent.length, chat: { id: chat } };
         },
         async edit(chat, messageId) { return { message_id: messageId, chat: { id: chat } }; },
         async callback() {},
@@ -92,12 +92,16 @@ test("choice callback binds original chat, message, session and request exactly 
     assert.ok(f.snapshots.some(s => Object.values(s.requests).some(r => r.state === "attempting")));
 });
 
-test("text replies support freeform without routing unaddressed text", async () => {
+test("text replies support freeform while unaddressed text waits for a destination", async () => {
     const f = await fixture();
+    f.bridge.state.bot = { id: 100 };
+    f.bridge.state.sessions["session-a"].idleSelectionId = "selected-1";
     await f.bridge.sync();
     const unaddressed = reply(1, "First"); delete unaddressed.message.reply_to_message;
     await f.bridge.receive(unaddressed);
     assert.equal(f.answers.length, 0);
+    assert.equal(f.messages.length, 0);
+    assert.equal(f.bridge.state.inbound[1].destinationChoice.state, "pending");
     await f.bridge.receive(reply(2, "Use a third option."));
     assert.deepEqual(f.answers, [["session-a", "request-1", "Use a third option."]]);
 });

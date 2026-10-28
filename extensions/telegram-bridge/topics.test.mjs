@@ -128,18 +128,18 @@ test("topic messages send plain text to the bound session without a prefix or nu
     assert.equal(f.sent.at(-1).message_thread_id, f.route("session-a"));
 });
 
-test("missing topic metadata explains explicit Reply without guessing a session", async () => {
+test("missing topic metadata offers destination choices without guessing or replaying a message", async () => {
     const f = await fixture();
     await f.bridge.enableTopics();
     await f.receive("A fresh harmless message", undefined);
-    const rejected = f.bridge.state.inbound[1];
-    assert.equal(rejected.threadId, null);
-    assert.equal(rejected.sessionId, null);
-    assert.equal(rejected.route, "bridge");
-    assert.equal(rejected.state, "not-sent");
-    assert.match(rejected.reason, /no session destination/);
-    assert.match(rejected.reason, /non-question bot message/);
-    assert.match(rejected.reason, /choose Reply/);
+    const offered = f.bridge.state.inbound[1];
+    assert.equal(offered.threadId, null);
+    assert.equal(offered.sessionId, null);
+    assert.equal(offered.route, "bridge");
+    assert.equal(offered.state, "handled");
+    assert.equal(offered.destinationChoice.state, "pending");
+    assert.match(f.sent.at(-1).text, /Choose a session/);
+    assert.equal(f.sent.at(-1).message_thread_id, undefined);
     assert.equal(f.messages.length, 0);
 
     await f.receive("A separate explicitly addressed message", f.route("session-a"),
@@ -147,7 +147,7 @@ test("missing topic metadata explains explicit Reply without guessing a session"
     assert.deepEqual(f.messages, [["session-a", "A separate explicitly addressed message"]]);
     assert.equal(f.bridge.state.inbound[2].sessionId, "session-a");
     assert.equal(f.bridge.state.inbound[2].state, "accepted");
-    assert.equal(f.bridge.state.inbound[1].state, "not-sent");
+    assert.equal(f.bridge.state.inbound[1].destinationChoice.state, "pending");
 });
 
 test("topic messages accept old and unrecorded non-question replies using only the current topic", async () => {

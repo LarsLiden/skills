@@ -100,10 +100,10 @@ export class Telegram {
         });
     }
 
-    edit(chatId, messageId, text) {
+    edit(chatId, messageId, text, markup = { inline_keyboard: [] }) {
         return this.paced("editMessageText", {
             chat_id: chatId, message_id: messageId, text,
-            link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: [] },
+            link_preview_options: { is_disabled: true }, reply_markup: markup,
         });
     }
 

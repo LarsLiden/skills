@@ -266,6 +266,53 @@ retained locally and never automatically replayed.
 
 ## Lifecycle and limitations
 
+### Incoming receipts and transport health
+
+Before routing an authenticated paired-account update, the hub atomically saves
+its update watermark and an `inbound` receipt. Receipt fields include Telegram
+update/message/topic/reply IDs, bot/chat, receipt time, Telegram date, kind and a
+content hash. Incoming text and callback payloads are not retained. Foreign,
+forwarded, group and bot-sender data does not enter this history. Destination and
+exact question identity are saved before app preflight; app attempts are saved
+before dispatch. Validation/rejection responses explain non-dispatch. A failed
+app preflight records a not-sent outcome and attempts one failure notice.
+
+Receipt outcomes distinguish `received`, `attempting`, `accepted`, `uncertain`,
+`not-sent`, `handled` and `interrupted`. Accepted app writes are not reclassified
+when Telegram confirmation fails. Button acknowledgment runs after routing, so
+an `answerCallbackQuery` network failure cannot prevent a valid exact answer.
+It does not authorize stale/foreign replies or retry any app action. The original
+request/command and first-reply receipts remain authoritative for their effects.
+
+On load, unfinished received inputs become interrupted and saved app attempts
+become uncertain; neither is replayed. The watermark is assigned in memory only
+after a successful save. A state-save failure pauses incoming processing,
+terminates the current receiver/monitor and requires inspection before a new
+runtime, rather than polling with a higher offset. A possibly committed save is
+not retried to guess its outcome. The panel reports the pause explicitly.
+Completed error-free inbound history is bounded to 200 records; failures,
+interrupted and uncertain records are retained. The panel and read-only canvas
+status show the latest 20. Records cannot establish delivery of older inputs
+that were never journaled, and reconnect's explicit discard boundary is unchanged.
+
+`health` separates current-runtime `poll`, `monitor`, `inbound`, `reply` and
+`action` errors and observations. Polling records the attempted offset, latest
+batch size, last attempt/success/failure, consecutive failures and recovery.
+Successful app monitoring never clears polling failure, and a successful poll
+does not clear an app dispatch failure. A recovered fault recurring later produces
+a fresh warning. These health observations are in-memory, not reconstructed
+historical delivery evidence; unresolved durable action records survive recovery.
+
+Telegram failures identify only allowlisted method/stage/code, timestamp and HTTP
+status. Network failures, invalid response JSON and API rejections remain distinct;
+raw causes, URLs, tokens, descriptions and request bodies are excluded. Polling
+errors describe unconfirmed incoming reads, not fictitious outbound delivery.
+Safe polling reads keep the existing retry behavior; writes and uncertain inputs
+are not retried. Changes to these hub-only paths require a safe hub reload and
+explicit reconnection, not interruption of the monitored working agents.
+
+### Hub lifetime
+
 One owner hub at a time is enforced by an OS-local named pipe. Opening in another
 session does not take over or kill the owner. Close the original hub before
 moving it; **Disconnect** stops traffic but the original hub retains ownership.
@@ -459,6 +506,12 @@ the Windows credential helper with a fake secret. They do not need a real bot,
 real user credentials, or a live Copilot session. The runtime entrypoint is loaded
 by Copilot, not by running `node extension.mjs`. The repository's Windows CI
 checks JavaScript syntax and runs these tests.
+
+The concurrent-reader stress case has an intermittent pre-existing `EBUSY`
+failure tracked in [LarsLiden/skills#11](https://github.com/LarsLiden/skills/issues/11).
+It reproduces on the published source as well as the inbound-receipt candidate.
+Keep a failing storage result distinct from passing routing/UI tests; this
+tracking entry neither passes that gate nor authorizes a timeout increase.
 
 Live acceptance is separate: extension discovery, app RPC access, a dedicated
 Telegram bot paired by the user, locked-phone delivery and an actual question

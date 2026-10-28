@@ -39,7 +39,8 @@ const canvas = createCanvas({
             const value = await service.status();
             return { configured: value.configured, connected: value.connected, enabled: value.enabled,
                 lastSync: value.lastSync, error: value.error, monitoredSessions: value.sessions.filter(s => s.selected).length,
-                unresolvedActions: value.unresolved.length, topics: value.topics, questionUpdates: value.questionUpdates };
+                unresolvedActions: value.unresolved.length, topics: value.topics, questionUpdates: value.questionUpdates,
+                health: value.health, inbound: value.inbound };
         },
     }, {
         name: "check_app_connection",

@@ -25,6 +25,10 @@ export class Service {
             answerReceipts: this.answerReceipts, firstReplies: this.firstReplies });
         this.queue = Promise.resolve();
         this.error = null;
+        this.health = Object.fromEntries(["poll", "monitor", "inbound", "reply", "action"].map(name => [name, {
+            error: null, lastAttempt: null, lastSuccess: null, lastFailure: null, lastError: null,
+            consecutiveFailures: 0, recoveredAt: null,
+        }]));
         this.connected = false;
         this.lastSync = null;
         this.initialized = false;
@@ -65,16 +69,40 @@ export class Service {
         }
     }
 
-    serial(operation) {
+    serial(operation, lane = "action") {
         const next = this.queue.then(operation);
-        this.queue = next.catch(error => this.report(error));
+        this.queue = next.catch(error => {
+            if (lane) {
+                this.report(error, lane);
+                if (this.bridge.persistenceFailed) this.pauseReceiving();
+            }
+        });
         return next;
     }
 
-    report(error) {
+    pauseReceiving() {
+        this.controller?.abort();
+        this.firstReplyWatcher?.close(); this.firstReplyWatcher = null;
+        this.connected = false;
+        this.bridge.state.enabled = false;
+    }
+
+    report(error, lane = "action") {
         const message = error.message || "Telegram bridge operation failed.";
-        if (message !== this.error) this.notify(`Telegram bridge: ${message}`);
-        this.error = message;
+        const health = this.health[lane];
+        const diagnostic = error.diagnostic;
+        const signature = diagnostic ? JSON.stringify([diagnostic.method, diagnostic.stage, diagnostic.code]) : message;
+        if (!health.error || signature !== health.signature) this.notify(`Telegram bridge ${lane}: ${message}`);
+        Object.assign(health, { error: message, lastError: message, signature,
+            lastFailure: new Date().toISOString(), consecutiveFailures: health.consecutiveFailures + 1 });
+        this.error = Object.values(this.health).filter(item => item.error).map(item => item.error).join("\n") || null;
+    }
+
+    succeeded(lane) {
+        const health = this.health[lane], at = new Date().toISOString();
+        if (health.error) health.recoveredAt = at;
+        Object.assign(health, { error: null, lastSuccess: at, consecutiveFailures: 0 });
+        this.error = Object.values(this.health).filter(item => item.error).map(item => item.error).join("\n") || null;
     }
 
     async status() {
@@ -84,6 +112,11 @@ export class Service {
             configured: this.configured, connected: this.connected, started: Boolean(this.controller), enabled: b.state.enabled,
             bot: b.state.bot, peer: b.state.peer, ownerSessionId: this.selfId,
             error: this.error, lastSync: this.lastSync, notifyIdle: b.state.notifyIdle,
+            health: structuredClone(this.health),
+            inbound: {
+                lastUpdate: b.state.lastUpdate, paused: b.persistenceFailed,
+                recent: Object.values(b.state.inbound ?? {}).sort((a, b) => b.updateId - a.updateId).slice(0, 20),
+            },
             topics: b.topics.status(),
             questionUpdates: { supported: true,
                 updated: Object.values(b.state.requests).filter(r => r.messageUpdate?.state === "sent").length,
@@ -106,18 +139,28 @@ export class Service {
                 .concat(Object.values(b.state.phoneInputs ?? {}).filter(input => ["attempting", "uncertain"].includes(input.state))
                     .map(input => ({ sessionId: input.sessionId, state: "phone-input-uncertain" })))
                 .concat(Object.values(b.state.phoneInputs ?? {}).filter(input => ["attempting", "uncertain"].includes(input.delivery?.state))
-                    .map(input => ({ sessionId: input.sessionId, state: "first-reply-uncertain" }))),
+                    .map(input => ({ sessionId: input.sessionId, state: "first-reply-uncertain" })))
+                .concat(Object.values(b.state.inbound ?? {}).filter(input => input.failure ||
+                    ["received", "attempting", "uncertain", "interrupted"].includes(input.state))
+                    .map(input => ({ sessionId: input.sessionId ?? null, updateId: input.updateId,
+                        state: `inbound-${input.state}` }))),
         };
     }
 
     async refresh(signal = this.controller?.signal) {
+        if (this.bridge.persistenceFailed) throw new Error("Incoming receiving is paused after a storage failure; inspect the saved state before restarting.");
+        this.health.monitor.lastAttempt = new Date().toISOString();
         await this.bridge.sync(signal);
         this.lastSync = new Date().toISOString();
+        this.succeeded("monitor");
     }
 
     async action(input) {
         await this.initialize();
         if (!input || typeof input.action !== "string") throw new Error("Select a valid panel action.");
+        if (this.bridge.persistenceFailed && input.action !== "stop") {
+            throw new Error("Incoming receiving is paused after a storage failure; inspect the saved state before restarting.");
+        }
         if (input.action === "stop" || input.action === "forget" || input.action === "configure") await this.stop();
         return this.serial(async () => {
             switch (input.action) {
@@ -143,7 +186,6 @@ export class Service {
                     if (!this.connected || !this.bridge.state.enabled) throw new Error("Connect and pair your phone before enabling topics.");
                     await this.bridge.enableTopics(this.controller?.signal);
                     await this.refresh();
-                    this.error = null;
                     break;
                 case "pair":
                     if (!this.connected) throw new Error("Connect a dedicated bot first.");
@@ -184,12 +226,14 @@ export class Service {
                     break;
                 default: throw new Error("Unsupported panel action.");
             }
+            this.succeeded("action");
             return this.status();
         });
     }
 
     async connect(existing) {
         if (this.controller) throw new Error("The bot is already connected.");
+        if (this.bridge.persistenceFailed) throw new Error("Inbound receiving is paused after a storage failure; inspect the saved state before restarting.");
         let telegram = existing;
         if (!telegram) {
             const token = await this.vault.load();
@@ -224,16 +268,18 @@ export class Service {
         try {
             this.firstReplyWatcher = await this.firstReplies.watch(() => {
                 if (this.connected && !signal.aborted) {
-                    void this.serial(() => this.bridge.forwardFirstReplies(signal)).catch(error => this.report(error));
+                    void this.serial(async () => {
+                        await this.bridge.forwardFirstReplies(signal);
+                        this.succeeded("reply");
+                    }, "reply").catch(() => {});
                 }
-            }, error => this.report(error));
+            }, error => this.report(error, "reply"));
         } catch (error) {
             this.controller.abort(); this.controller = null;
             this.bridge.state.enabled = false;
             await this.bridge.save();
             throw error;
         }
-        this.error = null;
         this.connected = true;
         this.polling = this.poll(signal);
         this.monitoring = this.monitor(signal);
@@ -241,25 +287,33 @@ export class Service {
 
     async poll(signal) {
         while (!signal.aborted) {
+            let lane = "poll";
             try {
+                if (this.bridge.persistenceFailed) throw new Error("Inbound receiving is paused after a storage failure; inspect the saved state before restarting.");
                 const offset = this.bridge.state.lastUpdate === null ? null : this.bridge.state.lastUpdate + 1;
+                Object.assign(this.health.poll, { lastAttempt: new Date().toISOString(), lastOffset: offset });
                 const updates = await this.bridge.telegram.updates(offset, signal);
+                if (signal.aborted) break;
+                this.health.poll.lastBatchSize = updates.length;
+                this.succeeded("poll");
+                lane = "inbound";
                 for (const update of updates) {
                     if (signal.aborted) break;
-                    await this.serial(() => this.bridge.receive(update));
+                    // The catch below reports this failure once, with its inbound scope.
+                    await this.serial(() => this.bridge.receive(update), null);
+                    this.succeeded("inbound");
                 }
             } catch (error) {
                 if (signal.aborted) break;
-                this.report(error);
-                if (/\(409\)|\(401\)/.test(error.message)) {
-                    this.controller?.abort();
-                    this.firstReplyWatcher?.close(); this.firstReplyWatcher = null;
-                    this.connected = false;
-                    this.bridge.state.enabled = false;
-                    await this.serial(async () => {
-                        await this.bridge.save();
-                        await this.idleReplies.clear(Object.keys(this.bridge.state.sessions));
-                    }).catch(error => this.report(error));
+                this.report(error, lane);
+                if (this.bridge.persistenceFailed || error.apiCode === 409 || error.apiCode === 401) {
+                    this.pauseReceiving();
+                    if (!this.bridge.persistenceFailed) {
+                        await this.serial(async () => {
+                            await this.bridge.save();
+                            await this.idleReplies.clear(Object.keys(this.bridge.state.sessions));
+                        }, "inbound").catch(() => {});
+                    }
                     break;
                 }
                 await wait((error.retryAfter ?? 5) * 1000, signal);
@@ -269,8 +323,8 @@ export class Service {
 
     async monitor(signal) {
         while (!signal.aborted) {
-            try { await this.serial(() => this.refresh()); }
-            catch (error) { this.report(error); }
+            try { await this.serial(() => this.refresh(signal), "monitor"); }
+            catch { /* serial records the scoped failure. */ }
             await wait(15_000, signal);
         }
     }
@@ -281,6 +335,10 @@ export class Service {
         await Promise.all([this.polling, this.monitoring]);
         this.controller = null;
         this.connected = false;
+        if (this.bridge.persistenceFailed) {
+            this.bridge.state.enabled = false;
+            return;
+        }
         await this.serial(async () => {
             this.bridge.state.enabled = false;
             for (const r of Object.values(this.bridge.state.requests)) if (r.state === "pending") r.state = "revoked";

@@ -276,3 +276,38 @@ test("topic setup stays explicit, explains BotFather, and shows persisted topic 
     assert.equal(p.get("enable-topics").disabled, true);
     assert.ok(p.requests.every(request => request.method === "GET"));
 });
+
+test("incoming health distinguishes app scans, polling failure and recovered historical failure", async () => {
+    const p = await panel({ connected: true, started: true, enabled: true,
+        health: { poll: { lastSuccess: null, error: "Polling failed", lastFailure: "2026-10-28T02:18:00Z" } } });
+    assert.match(p.get("incoming-health").textContent, /not yet confirmed/i);
+    assert.match(p.get("incoming-health").textContent, /Polling failed/);
+    await p.update({ health: { poll: { lastSuccess: "2026-10-28T02:30:00Z",
+        error: null, lastError: "Polling failed", lastFailure: "2026-10-28T02:18:00Z",
+        recoveredAt: "2026-10-28T02:30:00Z" } } });
+    assert.match(p.get("incoming-health").textContent, /Last successful Telegram poll/);
+    assert.match(p.get("incoming-health").textContent, /recovered/i);
+    assert.match(p.get("incoming-health").textContent, /not proof.*message.*deliver/i);
+    assert.ok(p.requests.every(request => request.method === "GET"));
+});
+
+test("incoming history shows non-dispatch and accepted-but-unconfirmed results without replay controls", async () => {
+    const p = await panel({ connected: true, started: true, enabled: true, inbound: {
+        paused: true, recent: [
+            { updateId: 2, messageId: 102, state: "accepted", sessionId: "session-a", threadId: 89,
+                failure: { stage: "message-confirmation" } },
+            { updateId: 1, messageId: 101, state: "not-sent", sessionId: "session-a", threadId: 89,
+                reason: "App preflight failed", failure: { stage: "preflight" } },
+        ],
+    } });
+    assert.match(p.get("incoming-health").textContent, /paused.*storage/i);
+    const entries = p.get("incoming").children;
+    assert.equal(entries.length, 2);
+    assert.match(entries[0].textContent, /Accepted by Copilot/);
+    assert.match(entries[0].textContent, /message-confirmation/);
+    assert.match(entries[1].textContent, /Not sent.*App preflight failed/);
+    assert.ok(p.requests.every(request => request.method === "GET"));
+    const extension = await readFile(new URL("./extension.mjs", import.meta.url), "utf8");
+    assert.match(extension, /health: value\.health/);
+    assert.match(extension, /inbound: value\.inbound/);
+});

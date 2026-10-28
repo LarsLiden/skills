@@ -198,6 +198,28 @@ A successful local test suite, an open panel, or `connected: true` alone does
 not verify the entire phone round trip. If a message's outcome is uncertain,
 inspect Copilot before resending it.
 
+### Check a missing incoming message
+
+The panel's **Incoming Telegram messages** section separates the last successful
+Telegram poll from the last app scan. A recent app scan does not prove that
+Telegram messages are being received. Polling errors show the operation, stage,
+time and a limited network error code, without exposing the bot token or request
+body. Recovery clears the current polling error only after a successful poll;
+the last failure time stays visible for this hub runtime.
+
+The most recent 20 inbound receipts show the Telegram message/update/topic IDs,
+receipt time, selected session and outcome. **Not sent** means no app instruction
+was dispatched. **Accepted by Copilot** remains accepted even if a later phone
+confirmation fails. **Uncertain** or **Interrupted** requires inspection, not
+automatic resending. Receipts store metadata and a content hash, not incoming
+message text. They start with this version and cannot reconstruct older missing
+messages. Telegram check marks or a later idle notification are not app receipts.
+
+If receipt storage fails, incoming processing pauses before acknowledging further
+updates. Preserve local state and inspect the failure before restarting; do not
+delete receipts or reconnect as an automatic recovery. Restart/reconnect still
+discards pre-connection Telegram updates rather than replaying old instructions.
+
 ## Updating
 
 Updates are **not automatically synchronized** between computers.
@@ -221,7 +243,8 @@ artifacts; the manual source-only update above makes that boundary explicit.
 | --- | --- |
 | Canvas not found | Confirm `extension.mjs` is directly in the user extension folder; restart Copilot. A project extension with the same name can shadow the user extension. |
 | Another hub owns the bridge | Return to that existing hub or close it before opening another. Do not delete state/locks or run competing receivers. |
-| Connected but no sessions or no sync | Run the read-only app connection check. App permission, RPC or response-format errors need diagnosis; zero loaded rows does not mean saved selections were removed. |
+| Connected but no sessions or no sync | Run the read-only app connection check. Check incoming polling separately; app scans do not prove receipt of Telegram messages. App permission, RPC or response-format errors need diagnosis; zero loaded rows does not mean saved selections were removed. |
+| An incoming message never reached Copilot | Inspect its recent inbound receipt and polling health. A failed app preflight is recorded as not sent; no unknown action is automatically replayed. Old messages without receipts remain unverified. |
 | Messages arrive but the first/final response does not | Ensure the monitored session, not only the hub, loaded the latest extension. Check its capture warnings; missing or ambiguous input attribution is not guessed. |
 | Bot conflict or disconnected receiver | Ensure no other computer or application is using that bot token. Use separate bots. |
 | State-file `EPERM` or access timeout | Load current file-access coordination in every provider by restarting Copilot when safe. External file locks can still fail; preserve state and investigate instead of deleting it. |

@@ -266,6 +266,53 @@ retained locally and never automatically replayed.
 
 ## Lifecycle and limitations
 
+### Incoming receipts and transport health
+
+Before routing an authenticated paired-account update, the hub atomically saves
+its update watermark and an `inbound` receipt. Receipt fields include Telegram
+update/message/topic/reply IDs, bot/chat, receipt time, Telegram date, kind and a
+content hash. Incoming text and callback payloads are not retained. Foreign,
+forwarded, group and bot-sender data does not enter this history. Destination and
+exact question identity are saved before app preflight; app attempts are saved
+before dispatch. Validation/rejection responses explain non-dispatch. A failed
+app preflight records a not-sent outcome and attempts one failure notice.
+
+Receipt outcomes distinguish `received`, `attempting`, `accepted`, `uncertain`,
+`not-sent`, `handled` and `interrupted`. Accepted app writes are not reclassified
+when Telegram confirmation fails. Button acknowledgment runs after routing, so
+an `answerCallbackQuery` network failure cannot prevent a valid exact answer.
+It does not authorize stale/foreign replies or retry any app action. The original
+request/command and first-reply receipts remain authoritative for their effects.
+
+On load, unfinished received inputs become interrupted and saved app attempts
+become uncertain; neither is replayed. The watermark is assigned in memory only
+after a successful save. A state-save failure pauses incoming processing,
+terminates the current receiver/monitor and requires inspection before a new
+runtime, rather than polling with a higher offset. A possibly committed save is
+not retried to guess its outcome. The panel reports the pause explicitly.
+Completed error-free inbound history is bounded to 200 records; failures,
+interrupted and uncertain records are retained. The panel and read-only canvas
+status show the latest 20. Records cannot establish delivery of older inputs
+that were never journaled, and reconnect's explicit discard boundary is unchanged.
+
+`health` separates current-runtime `poll`, `monitor`, `inbound`, `reply` and
+`action` errors and observations. Polling records the attempted offset, latest
+batch size, last attempt/success/failure, consecutive failures and recovery.
+Successful app monitoring never clears polling failure, and a successful poll
+does not clear an app dispatch failure. A recovered fault recurring later produces
+a fresh warning. These health observations are in-memory, not reconstructed
+historical delivery evidence; unresolved durable action records survive recovery.
+
+Telegram failures identify only allowlisted method/stage/code, timestamp and HTTP
+status. Network failures, invalid response JSON and API rejections remain distinct;
+raw causes, URLs, tokens, descriptions and request bodies are excluded. Polling
+errors describe unconfirmed incoming reads, not fictitious outbound delivery.
+Safe polling reads keep the existing retry behavior; writes and uncertain inputs
+are not retried. Changes to these hub-only paths require a safe hub reload and
+explicit reconnection, not interruption of the monitored working agents.
+
+### Hub lifetime
+
 One owner hub at a time is enforced by an OS-local named pipe. Opening in another
 session does not take over or kill the owner. Close the original hub before
 moving it; **Disconnect** stops traffic but the original hub retains ownership.
@@ -430,7 +477,18 @@ no file contents, is separate from hub ownership and is released by the OS if
 its owner exits; there is no persistent lock file to delete or take over.
 
 File operations wait for exclusive access for up to five seconds. A timeout
-fails explicitly without running the blocked operation. The existing serialized
+fails explicitly without running the blocked operation. Waiting callers connect
+to the current owner's pipe and wake when it closes, instead of competing on
+10-25 millisecond timers that can miss brief release windows. Closure is only a
+wakeup: every caller must still acquire its own exclusive pipe before touching
+the file. The deadline covers the entire acquisition, is not restarted by a
+wakeup, and does not permit a timed-out operation to run later. Owner release
+closes waiting connections; timeout disconnects its waiter. Owner process/worker
+exit releases the same OS resource without stale files or delegated lock ownership.
+No pipe payload, native addon, external daemon or new dependency is required.
+This is not a strict FIFO scheduling guarantee.
+
+The existing serialized
 hub remains responsible for write ordering and action receipts. Saves still
 replace a complete temporary file atomically: no in-place truncation,
 delete-then-rename workaround or automatic retry of a failed save or Telegram
@@ -459,6 +517,14 @@ the Windows credential helper with a fake secret. They do not need a real bot,
 real user credentials, or a live Copilot session. The runtime entrypoint is loaded
 by Copilot, not by running `node extension.mjs`. The repository's Windows CI
 checks JavaScript syntax and runs these tests.
+
+The release-notified locking regression covers
+[LarsLiden/skills#11](https://github.com/LarsLiden/skills/issues/11). Keep the
+eight-reader/300-replacement stress case, explicit acquisition-timeout test,
+owner-exit checks and external-lock failure checks. Test reader rejections are
+handled immediately and still fail the test, rather than becoming late unhandled
+promise rejections. Neither a passing routing test nor issue tracking substitutes
+for storage verification.
 
 Live acceptance is separate: extension discovery, app RPC access, a dedicated
 Telegram bot paired by the user, locked-phone delivery and an actual question

@@ -106,6 +106,31 @@ function render(value) {
         ? `${value.selectedMissing.length} selected session(s) are currently unavailable, marked * Unavailable above.` : "";
     $("health").textContent = (value.lastSync ? `Last successful app scan: ${new Date(value.lastSync).toLocaleString()}.` : "App status has not been scanned yet.")
         + (value.connected ? " App scanning interval: 15 seconds." : " Automatic app scanning is stopped while disconnected.");
+    const time = instant => instant ? new Date(instant).toLocaleString(undefined, { timeZoneName: "short" }) : "unknown time";
+    const poll = value.health?.poll;
+    $("incoming-health").textContent = (value.inbound?.paused ? "Incoming receiving is paused after a storage failure. " : "")
+        + (poll?.lastSuccess ? `Last successful Telegram poll: ${time(poll.lastSuccess)}. ` : "Incoming Telegram polling is not yet confirmed. ")
+        + (!value.connected ? "Polling is stopped. " : "")
+        + (poll?.error ? `Current polling error: ${poll.error} ` : "")
+        + (poll?.lastFailure ? `Last polling failure: ${time(poll.lastFailure)}`
+            + (poll.recoveredAt && !poll.error ? `; recovered ${time(poll.recoveredAt)}. ` : ". ") : "")
+        + "An app scan or successful poll is not proof that a particular message was delivered.";
+    const incoming = $("incoming");
+    incoming.replaceChildren();
+    const states = { received: "Received; not yet dispatched", attempting: "App dispatch in progress",
+        accepted: "Accepted by Copilot", uncertain: "App outcome uncertain", "not-sent": "Not sent",
+        handled: "Bridge command handled", interrupted: "Interrupted; not replayed" };
+    for (const receipt of value.inbound?.recent ?? []) {
+        const item = document.createElement("p");
+        const name = choices.find(session => session.id === receipt.sessionId)?.name
+            ?? receipt.sessionId ?? "No session destination";
+        item.textContent = `Message ${receipt.messageId ?? "unknown"} (update ${receipt.updateId}, topic ${receipt.threadId ?? "main"}): `
+            + `${states[receipt.state] ?? "Unknown outcome"} - ${name}. Received ${time(receipt.receivedAt)}.`
+            + (receipt.reason ? ` ${receipt.reason}` : "")
+            + (receipt.failure ? ` Failure during ${receipt.failure.stage}; inspect the bridge log before resending.` : "");
+        incoming.append(item);
+    }
+    if (!value.inbound?.recent?.length) incoming.textContent = "No inbound receipts recorded by this version yet.";
     $("unresolved").textContent = value.unresolved.length ? `${value.unresolved.length} notification/action outcome(s) need inspection in the app. No uncertain action is automatically replayed.` : "";
     const topics = value.topics;
     $("enable-topics").disabled = !value.connected || !value.peer || !value.enabled;

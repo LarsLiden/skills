@@ -4,7 +4,7 @@ import { phoneInputHash, firstReplyEligible } from "./first-reply.mjs";
 
 export function initialState() {
     return { version: 2, enabled: false, peer: null, bot: null, sessions: {}, aliases: {}, requests: {},
-        signals: {}, commands: {}, lastUpdate: null, notifyIdle: true, idleEpoch: null, topics: initialTopics() };
+        signals: {}, commands: {}, inbound: {}, lastUpdate: null, notifyIdle: true, idleEpoch: null, topics: initialTopics() };
 }
 const key = () => randomBytes(9).toString("hex");
 const fingerprint = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -79,6 +79,7 @@ export class Bridge {
         this.state = initialState();
         this.pairing = null;
         this.rows = [];
+        this.persistenceFailed = false;
         this.topics = new TopicRouter(this);
     }
     async load() {
@@ -98,9 +99,28 @@ export class Bridge {
         }
         if (state.topics === undefined) state.topics = initialTopics();
         validateTopics(state, safeId);
+        state.inbound ??= {};
+        if (!record(state.inbound) || Object.entries(state.inbound).some(([id, receipt]) =>
+            !record(receipt) || String(receipt.updateId) !== id || !Number.isSafeInteger(receipt.updateId) ||
+            !["received", "attempting", "accepted", "uncertain", "not-sent", "handled", "interrupted"].includes(receipt.state))) {
+            throw new Error("Saved inbound receipts are invalid; preserve state before restarting.");
+        }
+        let interrupted = false;
+        for (const receipt of Object.values(state.inbound)) {
+            if (receipt.state === "received" || receipt.state === "attempting") {
+                receipt.state = receipt.state === "received" ? "interrupted" : "uncertain";
+                receipt.reason = "Processing was interrupted; no automatic replay.";
+                interrupted = true;
+            }
+        }
+        if (interrupted) await this.persist(state);
         this.state = state;
     }
-    async save() { await this.store.save(this.state); }
+    async persist(state) {
+        try { await this.store.save(state); }
+        catch (error) { this.persistenceFailed = true; throw error; }
+    }
+    async save() { await this.persist(this.state); }
 
     async setOptIn(id, enabled, reason = "deselected") {
         if (!safeId(id) || id === this.selfId) throw new Error("Select a different, valid session; the hub does not monitor itself.");
@@ -425,10 +445,82 @@ export class Bridge {
     }
 
     async receive(update) {
+        if (this.persistenceFailed) throw new Error("Inbound receiving is paused after a storage failure; inspect the saved state before restarting.");
         if (!Number.isSafeInteger(update?.update_id) ||
             (this.state.lastUpdate !== null && update.update_id <= this.state.lastUpdate)) return;
-        this.state.lastUpdate = update.update_id;
-        await this.save();
+        if (this.state.inbound?.[update.update_id]) return;
+        const callback = update.callback_query;
+        const message = callback?.message ?? update.message;
+        const sender = callback?.from ?? message?.from;
+        const authorized = message && Number.isSafeInteger(sender?.id) && !sender.is_bot &&
+            message.chat?.type === "private" && message.chat.id === sender.id && !message.forward_origin &&
+            sender.id === this.state.peer?.id && message.chat.id === this.state.peer?.chatId;
+        const receipt = authorized ? {
+            updateId: update.update_id, messageId: message.message_id ?? null,
+            receivedAt: new Date(this.now()).toISOString(), telegramDate: message.date ?? null,
+            botId: this.state.bot?.id ?? null, chatId: message.chat.id,
+            threadId: message.message_thread_id ?? null, replyMessageId: message.reply_to_message?.message_id ?? null,
+            kind: callback ? "callback" : "message",
+            contentHash: phoneInputHash(String(callback?.data ?? message.text ?? "")),
+            state: "received", stage: "routing",
+        } : null;
+        const next = { ...this.state, lastUpdate: update.update_id,
+            inbound: { ...this.state.inbound, ...(receipt ? { [update.update_id]: receipt } : {}) } };
+        // The polling offset may advance only after the receipt and watermark commit together.
+        await this.persist(next);
+        this.state = next;
+        try {
+            await this.routeUpdate(update, receipt);
+            if (receipt) {
+                if (receipt.state === "received") {
+                    receipt.state = "not-sent";
+                    receipt.reason ??= "No app instruction was dispatched.";
+                }
+                receipt.completedAt = new Date(this.now()).toISOString();
+                await this.save();
+                if (callback) {
+                    receipt.stage = "callback-acknowledgment";
+                    await this.telegram.callback(callback.id);
+                }
+                const completed = Object.values(this.state.inbound).filter(r =>
+                    ["accepted", "handled", "not-sent"].includes(r.state) && !r.failure);
+                for (const old of completed.slice(0, Math.max(0, completed.length - 200))) {
+                    delete this.state.inbound[old.updateId];
+                }
+                await this.save();
+            }
+        } catch (error) {
+            if (receipt && !this.persistenceFailed) {
+                const beforeDispatch = receipt.state === "received";
+                if (beforeDispatch) receipt.state = "not-sent";
+                receipt.failure = { at: new Date(this.now()).toISOString(), stage: receipt.stage,
+                    message: "Processing failed; inspect the bridge operation log. No automatic replay." };
+                await this.save();
+                if (beforeDispatch && receipt.stage === "preflight") {
+                    try {
+                        await this.say("The bridge could not check the target session. Nothing was sent to Copilot. " +
+                            "Check the bridge panel before sending a new message.", {}, receipt.threadId);
+                    } catch {
+                        receipt.failure.phoneNotice = "The failure notice was not confirmed; no automatic retry.";
+                        await this.save();
+                    }
+                }
+            }
+            throw error;
+        }
+    }
+
+    inputResponse(receipt, threadId) {
+        return text => {
+            if (receipt?.state === "received") {
+                receipt.reason = text;
+                receipt.stage = "phone-response";
+            }
+            return this.say(text, {}, threadId);
+        };
+    }
+
+    async routeUpdate(update, receipt) {
         const callback = update.callback_query;
         const message = callback?.message ?? update.message;
         const sender = callback?.from ?? message?.from;
@@ -446,20 +538,16 @@ export class Bridge {
         if (!this.state.enabled || sender.id !== this.state.peer.id || message.chat.id !== this.state.peer.chatId) return;
         const threadId = message.message_thread_id ?? null;
         const context = this.topics.context(threadId);
-        const respond = text => this.say(text, {}, threadId);
-        if (context.kind === "retired") {
-            if (callback) await this.telegram.callback(callback.id);
-            return;
-        }
+        if (receipt) { receipt.route = context.kind; receipt.sessionId = context.sessionId ?? null; }
+        const respond = this.inputResponse(receipt, threadId);
+        if (context.kind === "retired") return;
         if (context.kind === "unknown" || context.kind === "inactive") {
-            if (callback) await this.telegram.callback(callback.id);
             await respond(context.kind === "inactive"
                 ? "This session topic is inactive. Select its session in the setup panel before sending instructions."
                 : "This topic is not linked to a session. Use a topic created by the bridge. Nothing was sent to Copilot.");
             return;
         }
         if (callback) {
-            await this.telegram.callback(callback.id);
             const parts = /^a:([a-f0-9]{18}):(\d{1,2})$/.exec(callback.data ?? "");
             if (!parts) return;
             const request = this.state.requests[parts[1]];
@@ -469,7 +557,7 @@ export class Bridge {
                 await respond("This button does not belong to this topic. Nothing was sent to Copilot."); return;
             }
             const answer = request.question.choices[Number(parts[2])];
-            if (answer !== undefined) await this.answer(request, answer);
+            if (answer !== undefined) await this.answer(request, answer, receipt);
             return;
         }
         const text = message.text?.trim();
@@ -487,7 +575,7 @@ export class Bridge {
                     (context.kind === "session" && request.sessionId !== context.sessionId)) {
                     await respond("This question belongs to another topic. Nothing was sent to Copilot."); return;
                 }
-                await this.answer(request, text); return;
+                await this.answer(request, text, receipt); return;
             }
             const idleMatches = context.kind === "session" ? [] : Object.entries(this.state.signals).filter(([, s]) =>
                 Array.isArray(s.idleReply?.replyTarget?.messageIds) &&
@@ -509,7 +597,7 @@ export class Bridge {
                     await respond("This idle notification is stale, uncertain or belongs to another session. Nothing was sent; use /tell for a new instruction.");
                     return;
                 }
-                await this.tell(update.update_id, selected.alias, text, threadId);
+                await this.tell(update.update_id, selected.alias, text, threadId, receipt);
                 return;
             }
             const topicRoot = threadId !== null && messageId === threadId &&
@@ -520,6 +608,7 @@ export class Bridge {
             }
         }
         if (text === "/start" || text === "/help") {
+            if (receipt) receipt.state = "handled";
             await respond("In a session topic, type a message or reply to an idle notification: no /tell prefix is required. After a phone message or answer, the first public reply is forwarded as soon as captured; the final result follows at idle.\n" +
                 "Reply to the exact question or tap its choice button to answer it. New messages cannot answer a pending decision.\n/status lists opted-in sessions, or this topic's session.\n" +
                 "In Bridge: /tell 042 Your message sends a new instruction when that session is not awaiting a decision. " +
@@ -528,6 +617,7 @@ export class Bridge {
             return;
         }
         if (text === "/status") {
+            if (receipt) receipt.state = "handled";
             const rows = await this.app.list();
             const lines = Object.entries(this.state.sessions)
                 .filter(([id]) => context.kind !== "session" || id === context.sessionId).map(([id, selected]) => {
@@ -543,33 +633,35 @@ export class Bridge {
             if (context.kind === "session" && this.state.sessions[context.sessionId].alias !== tell[1]) {
                 await respond("That code belongs to another session. Use its topic or the Bridge topic. Nothing was sent."); return;
             }
-            await this.tell(update.update_id, tell[1], tell[2], threadId); return;
+            await this.tell(update.update_id, tell[1], tell[2], threadId, receipt); return;
         }
         const local = /^\/tell\s+([\s\S]+)$/.exec(text);
         if (context.kind === "session" && local) {
             if (/^\d+(?:\s|$)/.test(local[1])) {
                 await respond("Use an exact three-digit code or omit the code entirely. Nothing was sent."); return;
             }
-            await this.tell(update.update_id, this.state.sessions[context.sessionId].alias, local[1], threadId); return;
+            await this.tell(update.update_id, this.state.sessions[context.sessionId].alias, local[1], threadId, receipt); return;
         }
         if (context.kind === "session") {
             if (text.startsWith("/")) {
                 await respond("Unknown or incomplete bridge command. Type an ordinary message without a prefix, or use /tell followed by literal text beginning with /.");
                 return;
             }
-            await this.tell(update.update_id, this.state.sessions[context.sessionId].alias, text, threadId);
+            await this.tell(update.update_id, this.state.sessions[context.sessionId].alias, text, threadId, receipt);
             return;
         }
         await respond("Reply to the original question message, or use /tell CODE Your message with the exact three-digit code from /status. " +
             "Old longer codes are no longer accepted. Nothing was sent to Copilot.");
     }
 
-    async answer(request, answer) {
-        const respond = text => this.say(text, {}, request.threadId ?? null);
+    async answer(request, answer, receipt) {
+        const respond = this.inputResponse(receipt, request.threadId ?? null);
+        if (receipt) Object.assign(receipt, { sessionId: request.sessionId, requestId: request.requestId, stage: "preflight" });
         if (!this.state.sessions[request.sessionId] || request.state !== "pending") {
             await respond("This question is stale, revoked or already attempted. Check the app; no answer was replayed.");
             return;
         }
+        if (receipt) await this.save();
         const row = await this.app.get(request.sessionId);
         const current = questionOf(row);
         if (retirement(row) || !current || fingerprint(current) !== request.hash || current.requestId !== request.requestId) {
@@ -582,16 +674,19 @@ export class Bridge {
             return;
         }
         const firstReply = this.armFirstReply(request.sessionId, "answer", answer, request.requestId);
+        if (receipt) Object.assign(receipt, { state: "attempting", stage: "app-answer", attemptedAt: new Date(this.now()).toISOString() });
         request.state = "attempting"; await this.save();
         try {
             await this.app.answer(request.sessionId, request.requestId, answer);
         } catch {
+            if (receipt) receipt.state = "uncertain";
             if (firstReply) firstReply.state = "uncertain";
             request.state = "uncertain"; await this.save();
             await respond("The app did not confirm this answer. Its outcome is uncertain; inspect the app before retrying. It will not be automatically replayed.");
             return;
         }
         request.state = "answered";
+        if (receipt) { receipt.state = "accepted"; receipt.stage = "answer-confirmation"; }
         if (firstReply) firstReply.state = "accepted";
         request.resolution = { answer, source: "telegram" };
         await this.save();
@@ -599,11 +694,13 @@ export class Bridge {
         await respond("Copilot accepted the answer to that question.");
     }
 
-    async tell(updateId, alias, message, threadId = null) {
-        const respond = text => this.say(text, {}, threadId);
+    async tell(updateId, alias, message, threadId = null, receipt) {
+        const respond = this.inputResponse(receipt, threadId);
         const selected = Object.entries(this.state.sessions).find(([, item]) => item.alias === alias);
         if (!selected) { await respond("Unknown or unselected session code; use /status. Nothing was sent."); return; }
         const [id] = selected;
+        if (receipt) Object.assign(receipt, { sessionId: id, stage: "preflight" });
+        if (receipt) await this.save();
         const row = await this.app.get(id);
         if (!row || row.id !== id || retirement(row) || row.awaiting_user_input || row.awaiting_plan_approval || row.awaiting_permission) {
             await respond("That session is unavailable or awaiting a decision. Answer its exact question or use the app; no new prompt was sent.");
@@ -611,15 +708,18 @@ export class Bridge {
         }
         const firstReply = this.armFirstReply(id, "message", message);
         this.state.commands[updateId] = { sessionId: id, state: "attempting" };
+        if (receipt) Object.assign(receipt, { state: "attempting", stage: "app-message", attemptedAt: new Date(this.now()).toISOString() });
         await this.save();
         try { await this.app.tell(id, message); }
         catch {
+            if (receipt) receipt.state = "uncertain";
             if (firstReply) firstReply.state = "uncertain";
             this.state.commands[updateId].state = "uncertain"; await this.save();
             await respond("The app did not confirm the new message; delivery may be uncertain. Check the app before resending.");
             return;
         }
         this.state.commands[updateId].state = "sent";
+        if (receipt) { receipt.state = "accepted"; receipt.stage = "message-confirmation"; }
         if (firstReply) firstReply.state = "accepted";
         const completed = Object.keys(this.state.commands).filter(k => this.state.commands[k].state === "sent");
         for (const k of completed.slice(0, Math.max(0, completed.length - 200))) delete this.state.commands[k];

@@ -6,8 +6,39 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import { Store, atomicWrite } from "./storage.mjs";
 import { initialState } from "./bridge.mjs";
+
+test("a contending file operation subscribes to the owner release instead of polling blind", async () => {
+    const { withFileAccess } = await import("./storage.mjs");
+    const directory = await mkdtemp(join(tmpdir(), "telegram-state-release-signal-"));
+    const path = join(directory, "state.json");
+    const hash = createHash("sha256").update(resolve(path).toLowerCase()).digest("hex");
+    const address = `\\\\.\\pipe\\copilot-telegram-file-${hash}`;
+    const sockets = new Set();
+    let connected, waiting, ran = false;
+    const subscribed = new Promise(done => { connected = done; });
+    const owner = createServer(socket => { sockets.add(socket); connected(); });
+    await new Promise((done, reject) => { owner.once("error", reject); owner.listen(address, done); });
+    try {
+        waiting = withFileAccess(path, () => { ran = true; });
+        await Promise.race([subscribed, wait(500).then(() => { throw new Error("Waiter never subscribed to release."); })]);
+        assert.equal(ran, false);
+        assert.equal(sockets.size, 1);
+        const closed = new Promise((done, reject) => owner.close(error => error ? reject(error) : done()));
+        for (const socket of sockets) socket.destroy();
+        await closed; await waiting;
+        assert.equal(ran, true);
+    } finally {
+        for (const socket of sockets) socket.destroy();
+        if (owner.listening) await new Promise(done => owner.close(done));
+        await waiting;
+        await rm(directory, { recursive: true });
+    }
+});
 
 test("state replacement remains atomic while session listeners read concurrently", { timeout: 45_000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), "telegram-state-readers-"));
@@ -47,6 +78,7 @@ test("state replacement remains atomic while session listeners read concurrently
             worker.once("message", resolve);
             worker.once("error", reject);
         }));
+        const settledReaders = Promise.allSettled(results);
         const errors = [];
         for (let revision = 1; revision <= 300; revision++) {
             state.revision = revision;
@@ -54,7 +86,10 @@ test("state replacement remains atomic while session listeners read concurrently
             catch (error) { errors.push(error.code ?? error.message); }
         }
         Atomics.store(stop, 0, 1);
-        assert.ok((await Promise.all(results)).every(count => count > 0));
+        for (const result of await settledReaders) {
+            if (result.status === "rejected") throw result.reason;
+            assert.ok(result.value > 0);
+        }
         assert.equal(errors.length, 0, `Atomic replacement failures: ${errors.length}; first: ${errors[0]}`);
         assert.equal((await store.load()).revision, 300);
     } finally {
@@ -133,7 +168,7 @@ test("file access is released by the OS when its owning worker exits", async () 
     const { withFileAccess } = await import("./storage.mjs");
     assert.equal(typeof withFileAccess, "function");
     const directory = await mkdtemp(join(tmpdir(), "telegram-state-owner-exit-"));
-    let worker;
+    let worker, writing;
     try {
         const path = join(directory, "state.json");
         worker = new Worker(`
@@ -144,10 +179,14 @@ test("file access is released by the OS when its owning worker exits", async () 
             })().catch(error => { throw error; });
         `, { eval: true, workerData: { module: new URL("./storage.mjs", import.meta.url).href, path } });
         await new Promise((resolve, reject) => { worker.once("message", resolve); worker.once("error", reject); });
+        let written = false;
+        writing = atomicWrite(path, "after exit").then(() => { written = true; });
+        await wait(100);
+        assert.equal(written, false);
         await worker.terminate();
-        await atomicWrite(path, "after exit");
+        await writing;
         assert.equal(await readFile(path, "utf8"), "after exit");
-    } finally { await worker?.terminate(); await rm(directory, { recursive: true }); }
+    } finally { await worker?.terminate(); await writing; await rm(directory, { recursive: true }); }
 });
 
 test("cross-process file access coordinates Windows path casing and releases on process exit", { timeout: 10_000 }, async () => {

@@ -1,3 +1,9 @@
+const networkCodes = new Set(["ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT",
+    "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT",
+    "UND_ERR_BODY_TIMEOUT", "UND_ERR_SOCKET", "CERT_HAS_EXPIRED", "UNABLE_TO_VERIFY_LEAF_SIGNATURE"]);
+const methods = new Set(["getMe", "getWebhookInfo", "getUpdates", "sendMessage", "editMessageText",
+    "createForumTopic", "editForumTopic", "deleteForumTopic", "answerCallbackQuery"]);
+
 export class Telegram {
     constructor(token, fetchImpl = fetch) {
         if (!/^\d{5,}:[A-Za-z0-9_-]{25,}$/.test(token)) throw new Error("Enter a valid BotFather token.");
@@ -10,6 +16,7 @@ export class Telegram {
     }
 
     async call(method, body = {}, signal) {
+        if (!methods.has(method)) throw new Error("Unsupported Telegram operation.");
         let response, data;
         const timeout = AbortSignal.timeout(method === "getUpdates" ? 35_000 : 15_000);
         try {
@@ -19,19 +26,36 @@ export class Telegram {
                 signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
                 redirect: "error",
             });
-            data = await response.json();
-        } catch {
-            if (signal?.aborted) throw new Error("Telegram request canceled.");
-            throw new Error("Telegram network request failed; delivery may be uncertain.");
+        } catch (cause) {
+            const code = signal?.aborted ? "canceled" : timeout.aborted ? "timeout"
+                : [cause?.code, cause?.cause?.code].find(value => networkCodes.has(value)) ?? "unknown";
+            throw this.failure(method, "network", code);
+        }
+        try { data = await response.json(); }
+        catch {
+            throw this.failure(method, "response-json", signal?.aborted ? "canceled"
+                : timeout.aborted ? "timeout" : "invalid-json", response.status);
         }
         if (!response.ok || data?.ok !== true) {
             const code = Number.isInteger(data?.error_code) ? data.error_code : "unknown";
             const error = new Error(`Telegram API rejected ${method} (${code}); no action was automatically retried.`);
             error.apiCode = code;
+            error.diagnostic = { method, stage: "api", code, at: new Date().toISOString(),
+                httpStatus: Number.isInteger(response.status) ? response.status : null };
             if (code === 429) error.retryAfter = Math.max(1, Number(data.parameters?.retry_after) || 30);
             throw error;
         }
         return data.result;
+    }
+
+    failure(method, stage, code, httpStatus) {
+        const diagnostic = { method, stage, code, at: new Date().toISOString(),
+            httpStatus: Number.isInteger(httpStatus) ? httpStatus : null };
+        const outcome = method === "getUpdates" ? "Incoming polling failed; no new batch was confirmed."
+            : ["getMe", "getWebhookInfo"].includes(method) ? "The read was not confirmed."
+                : "Delivery may be uncertain; no action was automatically retried.";
+        return Object.assign(new Error(`Telegram ${method} ${stage} failed (${code}) at ${diagnostic.at}. ${outcome}`),
+            { diagnostic });
     }
 
     async identity() {

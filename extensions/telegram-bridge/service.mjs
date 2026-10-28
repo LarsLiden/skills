@@ -81,6 +81,7 @@ export class Service {
     }
 
     pauseReceiving() {
+        this.bridge.expireDestinations("Receiving paused; buffered messages were discarded.");
         this.controller?.abort();
         this.firstReplyWatcher?.close(); this.firstReplyWatcher = null;
         this.connected = false;
@@ -115,6 +116,8 @@ export class Service {
             health: structuredClone(this.health),
             inbound: {
                 lastUpdate: b.state.lastUpdate, paused: b.persistenceFailed,
+                pendingDestinations: [...b.pendingDestinations.values()]
+                    .filter(input => b.state.inbound[input.sourceUpdateId]?.destinationChoice?.state === "pending").length,
                 recent: Object.values(b.state.inbound ?? {}).sort((a, b) => b.updateId - a.updateId).slice(0, 20),
             },
             topics: b.topics.status(),
@@ -234,6 +237,7 @@ export class Service {
     async connect(existing) {
         if (this.controller) throw new Error("The bot is already connected.");
         if (this.bridge.persistenceFailed) throw new Error("Inbound receiving is paused after a storage failure; inspect the saved state before restarting.");
+        this.bridge.expireDestinations("New connection; old destination choices cannot send messages.");
         let telegram = existing;
         if (!telegram) {
             const token = await this.vault.load();
@@ -336,10 +340,12 @@ export class Service {
         this.controller = null;
         this.connected = false;
         if (this.bridge.persistenceFailed) {
+            this.bridge.expireDestinations("Disconnected; buffered messages were discarded.");
             this.bridge.state.enabled = false;
             return;
         }
         await this.serial(async () => {
+            this.bridge.expireDestinations("Disconnected; buffered messages were discarded.");
             this.bridge.state.enabled = false;
             for (const r of Object.values(this.bridge.state.requests)) if (r.state === "pending") r.state = "revoked";
             await this.bridge.save();

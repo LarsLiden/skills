@@ -13,7 +13,7 @@ const input = (id = 1, text = "/tell 042 Harmless test") => ({
 async function fixture() {
     let disk = initialState();
     Object.assign(disk, { enabled: true, peer: { id: 42, chatId: 42 }, bot: { id: 100 } });
-    disk.sessions["session-a"] = { alias: "042", name: "Test" };
+    disk.sessions["session-a"] = { alias: "042", name: "Test", idleSelectionId: "selected-1" };
     disk.aliases["session-a"] = "042";
     const calls = [], sent = [], snapshots = [];
     const app = {
@@ -133,11 +133,12 @@ test("callback acknowledgment failure cannot prevent a valid exact answer", asyn
     assert.equal(f.calls.length, 1);
 });
 
-test("unaddressed input has an explicit non-dispatch receipt and unauthorized data is not retained", async () => {
+test("unaddressed input records a pending destination without dispatch and excludes unauthorized data", async () => {
     const f = await fixture();
     await f.bridge.receive(input(1, "No destination"));
-    assert.equal(f.disk().inbound[1].state, "not-sent");
-    assert.match(f.disk().inbound[1].reason, /\/tell|Reply/);
+    assert.equal(f.disk().inbound[1].state, "handled");
+    assert.equal(f.disk().inbound[1].destinationChoice.state, "pending");
+    assert.equal(f.calls.length, 0);
     const foreign = input(2, "PRIVATE FOREIGN TEXT");
     foreign.message.from.id = 77; foreign.message.chat.id = 77;
     await f.bridge.receive(foreign);

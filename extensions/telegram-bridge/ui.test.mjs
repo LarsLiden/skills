@@ -311,3 +311,28 @@ test("incoming history shows non-dispatch and accepted-but-unconfirmed results w
     assert.match(extension, /health: value\.health/);
     assert.match(extension, /inbound: value\.inbound/);
 });
+
+test("destination-choice history separates pending text, chosen destination and actual app acceptance", async () => {
+    const p = await panel({ connected: true, started: true, enabled: true, inbound: {
+        pendingDestinations: 1, recent: [
+            { updateId: 3, messageId: 103, state: "accepted", sessionId: "session-a", sourceUpdateId: 1 },
+            { updateId: 2, messageId: 102, state: "handled", destinationChoice: { state: "pending" } },
+            { updateId: 1, messageId: 101, state: "handled",
+                destinationChoice: { state: "chosen", callbackUpdateId: 3 } },
+        ],
+    } });
+    assert.match(p.get("incoming-health").textContent, /1 message.*awaiting.*destination/i);
+    const entries = p.get("incoming").children;
+    assert.match(entries[0].textContent, /Accepted by Copilot/);
+    assert.match(entries[0].textContent, /original update 1/i);
+    assert.match(entries[1].textContent, /Awaiting destination.*not sent/i);
+    assert.match(entries[2].textContent, /Destination chosen.*update 3/i);
+    assert.doesNotMatch(entries[2].textContent, /Accepted by Copilot/);
+    await p.update({ inbound: { pendingDestinations: 0, recent: [
+        { updateId: 2, messageId: 102, state: "handled",
+            destinationChoice: { state: "expired", reason: "Connection ended." } },
+    ] } });
+    assert.match(p.get("incoming").children[0].textContent, /expired.*not sent/i);
+    assert.match(html, /choose.*session.*button/i);
+    assert.ok(p.requests.every(request => request.method === "GET"));
+});

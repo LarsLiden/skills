@@ -114,6 +114,7 @@ function render(value) {
         + (poll?.error ? `Current polling error: ${poll.error} ` : "")
         + (poll?.lastFailure ? `Last polling failure: ${time(poll.lastFailure)}`
             + (poll.recoveredAt && !poll.error ? `; recovered ${time(poll.recoveredAt)}. ` : ". ") : "")
+        + `${value.inbound?.pendingDestinations ?? 0} message(s) awaiting a destination choice; not sent to Copilot. `
         + "An app scan or successful poll is not proof that a particular message was delivered.";
     const incoming = $("incoming");
     incoming.replaceChildren();
@@ -122,10 +123,19 @@ function render(value) {
         handled: "Bridge command handled", interrupted: "Interrupted; not replayed" };
     for (const receipt of value.inbound?.recent ?? []) {
         const item = document.createElement("p");
+        const choice = receipt.destinationChoice;
+        const choiceStates = { notifying: "Sending destination chooser; not sent to Copilot",
+            pending: "Awaiting destination; not sent to Copilot", canceled: "Canceled; not sent to Copilot",
+            expired: "Destination choice expired; not sent to Copilot",
+            uncertain: "Chooser delivery uncertain; not sent to Copilot",
+            chosen: `Destination chosen; see selection update ${choice?.callbackUpdateId}` };
         const name = choices.find(session => session.id === receipt.sessionId)?.name
             ?? receipt.sessionId ?? "No session destination";
         item.textContent = `Message ${receipt.messageId ?? "unknown"} (update ${receipt.updateId}, topic ${receipt.threadId ?? "main"}): `
-            + `${states[receipt.state] ?? "Unknown outcome"} - ${name}. Received ${time(receipt.receivedAt)}.`
+            + `${choice ? choiceStates[choice.state] ?? "Unknown destination-choice outcome"
+                : states[receipt.state] ?? "Unknown outcome"} - ${name}. Received ${time(receipt.receivedAt)}.`
+            + (receipt.sourceUpdateId !== undefined ? ` Original update ${receipt.sourceUpdateId}.` : "")
+            + (choice?.reason ? ` ${choice.reason}` : "")
             + (receipt.reason ? ` ${receipt.reason}` : "")
             + (receipt.failure ? ` Failure during ${receipt.failure.stage}; inspect the bridge log before resending.` : "");
         incoming.append(item);

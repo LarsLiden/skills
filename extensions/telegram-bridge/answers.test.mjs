@@ -285,6 +285,19 @@ test("Telegram edit transport clears the keyboard and addresses only the origina
         link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: [] } });
 });
 
+test("Telegram edit transport can replace a destination page without changing the question-edit default", async () => {
+    const calls = [];
+    const telegram = new Telegram("123456:abcdefghijklmnopqrstuvwxyz123456", async (_, options) => {
+        calls.push(JSON.parse(options.body));
+        return { ok: true, async json() { return { ok: true, result: { message_id: 17, chat: { id: 42 } } }; } };
+    });
+    const markup = { inline_keyboard: [[{ text: "Example", callback_data: "d:123456789012345678:s042" }]] };
+    await telegram.edit(42, 17, "Choose a session (page 2)", markup);
+    assert.deepEqual(calls[0].reply_markup, markup);
+    assert.equal(calls[0].message_id, 17);
+    assert.equal(calls[0].chat_id, 42);
+});
+
 test("revoked selections and foreign receipts cannot update messages", async () => {
     for (const change of [
         f => { f.request.state = "revoked"; },

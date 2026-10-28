@@ -80,9 +80,11 @@ export class Bridge {
         this.pairing = null;
         this.rows = [];
         this.persistenceFailed = false;
+        this.pendingDestinations = new Map();
         this.topics = new TopicRouter(this);
     }
     async load() {
+        this.pendingDestinations.clear();
         let state = await this.store.load();
         if (state.version === 1) {
             if (!record(state.sessions)) throw new Error("Saved sessions are invalid; session-code migration was not applied.");
@@ -113,12 +115,17 @@ export class Bridge {
                 interrupted = true;
             }
         }
-        if (interrupted) await this.persist(state);
+        const expired = this.expireDestinations("Hub restarted; send a fresh message to choose its destination.", state);
+        if (interrupted || expired) await this.persist(state);
         this.state = state;
     }
     async persist(state) {
         try { await this.store.save(state); }
-        catch (error) { this.persistenceFailed = true; throw error; }
+        catch (error) {
+            this.persistenceFailed = true;
+            this.expireDestinations("Receipt storage failed; buffered messages were discarded.");
+            throw error;
+        }
     }
     async save() { await this.persist(this.state); }
 
@@ -438,10 +445,14 @@ export class Bridge {
     }
 
     questionText(selected, q, threadId) {
+        const instructions = !q.choices.length
+            ? "\nReply to this message with your answer: in Telegram, select this message and choose Reply, then type and send. " +
+                "Typing a regular message does not answer this question."
+            : q.allowFreeform ? "\nTap a choice or Reply to this message with your answer."
+                : "\nTap a choice or Reply with the exact choice text.";
         return `${sessionHeading(selected, threadId)}\n\n${q.question}\n` +
             (q.choices.length ? "\n" + q.choices.map((c, i) => `${i + 1}. ${c}`).join("\n") + "\n" : "") +
-            (q.allowFreeform ? "\nTap a choice or Reply to this message with your answer." :
-                "\nTap a choice or Reply with the exact choice text.");
+            instructions;
     }
 
     async receive(update) {
@@ -485,6 +496,7 @@ export class Bridge {
                 const completed = Object.values(this.state.inbound).filter(r =>
                     ["accepted", "handled", "not-sent"].includes(r.state) && !r.failure);
                 for (const old of completed.slice(0, Math.max(0, completed.length - 200))) {
+                    if (old.destinationChoice) this.pendingDestinations.delete(old.destinationChoice.key);
                     delete this.state.inbound[old.updateId];
                 }
                 await this.save();
@@ -548,6 +560,10 @@ export class Bridge {
             return;
         }
         if (callback) {
+            if (typeof callback.data === "string" && callback.data.startsWith("d:")) {
+                await this.chooseDestination(update, receipt);
+                return;
+            }
             const parts = /^a:([a-f0-9]{18}):(\d{1,2})$/.exec(callback.data ?? "");
             if (!parts) return;
             const request = this.state.requests[parts[1]];
@@ -611,6 +627,7 @@ export class Bridge {
             if (receipt) receipt.state = "handled";
             await respond("In a session topic, type a message or reply to an idle notification: no /tell prefix is required. After a phone message or answer, the first public reply is forwarded as soon as captured; the final result follows at idle.\n" +
                 "Reply to the exact question or tap its choice button to answer it. New messages cannot answer a pending decision.\n/status lists opted-in sessions, or this topic's session.\n" +
+                "Without a destination, type normally and choose a session button; nothing is sent until you choose. " +
                 "In Bridge: /tell 042 Your message sends a new instruction when that session is not awaiting a decision. " +
                 "Replace 042 with its three-digit code from /status, including leading zeros.\n" +
                 "Plans, permissions and forms stay in the app.");
@@ -650,8 +667,166 @@ export class Bridge {
             await this.tell(update.update_id, this.state.sessions[context.sessionId].alias, text, threadId, receipt);
             return;
         }
-        await respond("Reply to the original question message, or use /tell CODE Your message with the exact three-digit code from /status. " +
-            "Old longer codes are no longer accepted. Nothing was sent to Copilot.");
+        if (text.startsWith("/")) {
+            await respond("Unknown or incomplete bridge command. Use /help, /status, or /tell CODE Your message with an exact three-digit code. Nothing was sent.");
+            return;
+        }
+        if (messageId !== undefined && !(threadId !== null && messageId === threadId &&
+            message.reply_to_message?.forum_topic_created)) {
+            await respond("This reply has no confirmed session destination. Reply to the exact question, or cancel Reply and type a fresh message to choose a session. Nothing was sent.");
+            return;
+        }
+        await this.offerDestination(update, receipt);
+    }
+
+    expireDestinations(reason, state = this.state) {
+        this.pendingDestinations.clear();
+        let changed = false;
+        for (const receipt of Object.values(state.inbound ?? {})) {
+            const choice = receipt.destinationChoice;
+            if (!["notifying", "pending"].includes(choice?.state)) continue;
+            Object.assign(choice, { state: "expired", reason, expiredAt: new Date(this.now()).toISOString() });
+            changed = true;
+        }
+        return changed;
+    }
+
+    destinationPage(choice, page) {
+        const pageSize = 8, pages = Math.ceil(choice.offers.length / pageSize);
+        const button = (text, action) => ({ text, callback_data: `d:${choice.key}:${action}` });
+        const rows = choice.offers.slice(page * pageSize, (page + 1) * pageSize)
+            .map(offer => [button(`[${offer.alias}] ${offer.name}`, `s${offer.alias}`)]);
+        const navigation = [];
+        if (page > 0) navigation.push(button("Previous", `p${page - 1}`));
+        if (page + 1 < pages) navigation.push(button("Next", `p${page + 1}`));
+        if (navigation.length) rows.push(navigation);
+        rows.push([button("Cancel this message", "cancel")]);
+        return {
+            text: `Choose a session for this new message${pages > 1 ? ` (page ${page + 1}/${pages})` : ""}.\n` +
+                "Nothing has been sent to Copilot. This does not answer a pending question.\n" +
+                "The unsent text is held only while this hub is connected and its recent receipt is retained. " +
+                "Restarting or disconnecting discards it.",
+            markup: { inline_keyboard: rows },
+        };
+    }
+
+    verifyDestinationMessage(result, choice) {
+        if (!Number.isSafeInteger(result?.message_id) || result.message_id <= 0 ||
+            (choice.messageId != null && result.message_id !== choice.messageId) ||
+            result.chat?.id !== choice.chatId || (result.message_thread_id ?? null) !== choice.threadId) {
+            throw new Error("Telegram did not confirm the destination chooser's exact message/chat/topic; no automatic retry.");
+        }
+    }
+
+    async offerDestination(update, receipt) {
+        const message = update.message, respond = this.inputResponse(receipt, receipt.threadId);
+        const offers = Object.entries(this.state.sessions).map(([sessionId, selected]) => ({
+            sessionId, alias: selected.alias, name: label(selected.name), selectionId: selected.idleSelectionId,
+        }));
+        if (!offers.length) {
+            await respond("No sessions are selected. Select a session in the local bridge panel before sending a new message.");
+            return;
+        }
+        if (!Number.isSafeInteger(this.state.bot?.id) || !Number.isSafeInteger(message.message_id) ||
+            message.message_id <= 0 || offers.some(offer => !offer.selectionId)) {
+            throw new Error("Destination selection is not initialized; reconnect the bridge before sending a fresh message.");
+        }
+        const choice = { key: key(), state: "notifying", botId: this.state.bot.id,
+            chatId: receipt.chatId, threadId: receipt.threadId, offers, page: 0 };
+        const pending = { sourceUpdateId: update.update_id, text: message.text };
+        receipt.destinationChoice = choice;
+        receipt.stage = "destination-notification";
+        this.pendingDestinations.set(choice.key, pending);
+        try {
+            await this.save();
+            const page = this.destinationPage(choice, 0);
+            const result = await this.say(page.text, { reply_markup: page.markup,
+                reply_parameters: { message_id: message.message_id } }, choice.threadId);
+            this.verifyDestinationMessage(result, choice);
+            choice.messageId = result.message_id;
+            // A pause during the send must not restore discarded text or authorize its buttons.
+            if (this.pendingDestinations.get(choice.key) === pending && this.state.enabled) choice.state = "pending";
+            receipt.state = "handled";
+            receipt.stage = "destination-choice";
+            await this.save();
+        } catch (error) {
+            this.pendingDestinations.delete(choice.key);
+            if (!this.persistenceFailed && choice.state !== "expired") choice.state = "uncertain";
+            throw error;
+        }
+    }
+
+    async chooseDestination(update, receipt) {
+        const callback = update.callback_query, message = callback.message;
+        const respond = this.inputResponse(receipt, receipt.threadId);
+        const parts = /^d:([a-f0-9]{18}):(s[0-9]{3}|p[0-9]{1,3}|cancel)$/.exec(callback.data);
+        const pending = parts && this.pendingDestinations.get(parts[1]);
+        const source = pending && this.state.inbound[pending.sourceUpdateId];
+        const choice = source?.destinationChoice;
+        if (!choice || choice.state !== "pending" || choice.key !== parts[1]) {
+            await respond("This destination choice has expired or was already used. This tap sent nothing new. " +
+                "Check the original message's outcome in Copilot before sending a fresh message.");
+            return;
+        }
+        if (choice.botId !== this.state.bot?.id || message.from?.id !== choice.botId ||
+            message.from?.is_bot !== true || choice.chatId !== this.state.peer.chatId ||
+            choice.messageId !== message.message_id || choice.threadId !== receipt.threadId ||
+            source.contentHash !== phoneInputHash(pending.text)) {
+            await respond("This button does not match the original destination chooser. Nothing was sent.");
+            return;
+        }
+        receipt.sourceUpdateId = pending.sourceUpdateId;
+        const action = parts[2];
+        if (action.startsWith("p")) {
+            const pageNumber = Number(action.slice(1));
+            if (pageNumber >= Math.ceil(choice.offers.length / 8)) {
+                await respond("That destination page was not offered. Nothing was sent."); return;
+            }
+            receipt.state = "handled";
+            receipt.stage = "destination-page";
+            if (pageNumber === choice.page && !choice.pageUpdate) return;
+            choice.pageUpdate = { page: pageNumber, state: "attempting", updateId: update.update_id };
+            await this.save();
+            const page = this.destinationPage(choice, pageNumber);
+            try {
+                const result = await this.telegram.edit(choice.chatId, choice.messageId, page.text, page.markup);
+                this.verifyDestinationMessage(result, choice);
+                choice.page = pageNumber;
+                delete choice.pageUpdate;
+            } catch (error) {
+                choice.pageUpdate.state = "uncertain";
+                throw error;
+            }
+            return;
+        }
+        const offer = choice.offers.find(item => action === `s${item.alias}`);
+        if (action !== "cancel" && !offer) {
+            await respond("That session was not offered for this message. Nothing was sent."); return;
+        }
+        const selected = offer && this.state.sessions[offer.sessionId];
+        this.pendingDestinations.delete(choice.key);
+        Object.assign(choice, { callbackUpdateId: update.update_id, chosenAt: new Date(this.now()).toISOString() });
+        if (offer && (!selected || selected.alias !== offer.alias || selected.idleSelectionId !== offer.selectionId)) {
+            choice.state = "expired";
+            choice.reason = "The selected session changed after these buttons were offered.";
+            await this.save();
+            await respond("That session selection is no longer current. Nothing was sent; send a fresh message to choose again.");
+            return;
+        }
+        choice.state = offer ? "chosen" : "canceled";
+        if (offer) choice.sessionId = offer.sessionId;
+        receipt.stage = "destination-choice";
+        if (!offer) receipt.state = "handled";
+        await this.save();
+        if (offer) await this.tell(update.update_id, offer.alias, pending.text, choice.threadId, receipt);
+        receipt.stage = "destination-choice-update";
+        await this.save();
+        const outcome = !offer ? "Canceled this unsent message. No Copilot job was canceled."
+            : receipt.state === "accepted" ? `Copilot accepted your message for [${offer.alias}] ${offer.name}. This is not task completion.`
+                : receipt.state === "uncertain" ? "The app did not confirm delivery. Inspect Copilot before resending; these buttons cannot retry it."
+                    : "No new message was sent. Check the bridge's explanation; these buttons have been used.";
+        const result = await this.telegram.edit(choice.chatId, choice.messageId, outcome, { inline_keyboard: [] });
+        this.verifyDestinationMessage(result, choice);
     }
 
     async answer(request, answer, receipt) {
@@ -702,14 +877,31 @@ export class Bridge {
         if (receipt) Object.assign(receipt, { sessionId: id, stage: "preflight" });
         if (receipt) await this.save();
         const row = await this.app.get(id);
+        if (!this.state.enabled) {
+            await respond("Incoming receiving stopped while checking this session. No new message was sent.");
+            return;
+        }
         if (!row || row.id !== id || retirement(row) || row.awaiting_user_input || row.awaiting_plan_approval || row.awaiting_permission) {
-            await respond("That session is unavailable or awaiting a decision. Answer its exact question or use the app; no new prompt was sent.");
+            await respond("That session is unavailable or awaiting a decision. To answer a question shown in Telegram, " +
+                "select that question and choose Reply, then type and send your answer. " +
+                "Replying to an older message does not answer the question. Otherwise use the Copilot app; no new prompt was sent.");
             return;
         }
         const firstReply = this.armFirstReply(id, "message", message);
         this.state.commands[updateId] = { sessionId: id, state: "attempting" };
         if (receipt) Object.assign(receipt, { state: "attempting", stage: "app-message", attemptedAt: new Date(this.now()).toISOString() });
         await this.save();
+        if (!this.state.enabled) {
+            this.state.commands[updateId].state = "not-sent";
+            if (firstReply) firstReply.state = "not-sent";
+            if (receipt) {
+                receipt.state = "not-sent";
+                receipt.reason = "Incoming receiving stopped before dispatch. No new message was sent.";
+            }
+            await this.save();
+            await respond("Incoming receiving stopped before dispatch. No new message was sent.");
+            return;
+        }
         try { await this.app.tell(id, message); }
         catch {
             if (receipt) receipt.state = "uncertain";
@@ -721,7 +913,7 @@ export class Bridge {
         this.state.commands[updateId].state = "sent";
         if (receipt) { receipt.state = "accepted"; receipt.stage = "message-confirmation"; }
         if (firstReply) firstReply.state = "accepted";
-        const completed = Object.keys(this.state.commands).filter(k => this.state.commands[k].state === "sent");
+        const completed = Object.keys(this.state.commands).filter(k => ["sent", "not-sent"].includes(this.state.commands[k].state));
         for (const k of completed.slice(0, Math.max(0, completed.length - 200))) delete this.state.commands[k];
         await this.save();
         await respond(`The app accepted your message for [${alias}]. This is not a task-completion confirmation.`);

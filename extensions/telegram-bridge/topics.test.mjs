@@ -128,6 +128,28 @@ test("topic messages send plain text to the bound session without a prefix or nu
     assert.equal(f.sent.at(-1).message_thread_id, f.route("session-a"));
 });
 
+test("missing topic metadata offers destination choices without guessing or replaying a message", async () => {
+    const f = await fixture();
+    await f.bridge.enableTopics();
+    await f.receive("A fresh harmless message", undefined);
+    const offered = f.bridge.state.inbound[1];
+    assert.equal(offered.threadId, null);
+    assert.equal(offered.sessionId, null);
+    assert.equal(offered.route, "bridge");
+    assert.equal(offered.state, "handled");
+    assert.equal(offered.destinationChoice.state, "pending");
+    assert.match(f.sent.at(-1).text, /Choose a session/);
+    assert.equal(f.sent.at(-1).message_thread_id, undefined);
+    assert.equal(f.messages.length, 0);
+
+    await f.receive("A separate explicitly addressed message", f.route("session-a"),
+        { reply_to_message: { message_id: 9999 } });
+    assert.deepEqual(f.messages, [["session-a", "A separate explicitly addressed message"]]);
+    assert.equal(f.bridge.state.inbound[2].sessionId, "session-a");
+    assert.equal(f.bridge.state.inbound[2].state, "accepted");
+    assert.equal(f.bridge.state.inbound[1].destinationChoice.state, "pending");
+});
+
 test("topic messages accept old and unrecorded non-question replies using only the current topic", async () => {
     const f = await idleNotice();
     await f.receive("Follow up on this", f.route("session-a"),
@@ -156,6 +178,46 @@ test("topic messages preserve exact question answers and reject stale or cross-t
     assert.equal(f.messages.length, 0);
     await f.receive("New request", f.route("session-a"));
     assert.deepEqual(f.messages, [["session-a", "New request"]]);
+});
+
+test("free-text topic answers reject older replies with actionable question instructions", async () => {
+    const f = await fixture();
+    await f.bridge.enableTopics();
+    pending(f.rows[0]);
+    f.rows[0].awaiting_input.choices = [];
+    await f.bridge.sync();
+    const request = Object.values(f.bridge.state.requests)[0];
+    const question = f.sent[request.messageId - 1];
+    assert.equal(question.message_thread_id, f.route("session-a"));
+    assert.equal(question.reply_markup, undefined);
+
+    await f.receive("Plain answer", f.route("session-a"));
+    assert.match(f.sent.at(-1).text, /select that question and choose Reply/);
+    await f.receive("Older-message answer", f.route("session-a"),
+        { reply_to_message: { message_id: 9999 } });
+    assert.match(f.sent.at(-1).text, /older message does not answer the question/);
+    await f.receive("Cross-topic answer", f.route("session-b"),
+        { reply_to_message: { message_id: request.messageId } });
+    assert.equal(f.answers.length, 0);
+    assert.equal(f.messages.length, 0);
+
+    await f.receive("Bound free-text answer", f.route("session-a"),
+        { reply_to_message: { message_id: request.messageId } });
+    assert.deepEqual(f.answers, [["session-a", "q-session-a", "Bound free-text answer"]]);
+    assert.equal(f.messages.length, 0);
+
+    await f.receive("Do not replay", f.route("session-a"),
+        { reply_to_message: { message_id: request.messageId } });
+    assert.equal(f.answers.length, 1);
+    f.rows[0].awaiting_input.request_id = "replacement";
+    await f.bridge.sync();
+    const replacement = Object.values(f.bridge.state.requests).find(r => r.requestId === "replacement");
+    f.rows[0].awaiting_input.request_id = "newer-replacement";
+    await f.receive("Changed question", f.route("session-a"),
+        { reply_to_message: { message_id: replacement.messageId } });
+    assert.equal(f.answers.length, 1);
+    assert.equal(f.messages.length, 0);
+    assert.equal(replacement.state, "stale");
 });
 
 test("topic messages keep Bridge commands explicit and do not send unsupported slash commands to an agent", async () => {

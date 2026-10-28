@@ -145,12 +145,35 @@ are retained; a failed lookup is not proof of deletion. The Bridge topic remains
 
 | Action | What to do |
 | --- | --- |
-| Answer an agent question | Tap its choice button, or use Telegram **Reply** on that exact question. |
+| Answer a multiple-choice question | Tap its choice button, or use Telegram **Reply** on that exact question. |
+| Answer a free-text question | Select that exact question in Telegram and choose **Reply**, then type and send your answer. |
 | Send a new instruction | Type normally inside the session's topic. **No `/tell` prefix is needed.** |
 | Reply to an idle/result message | Use Telegram Reply inside its session topic; only your new text is sent. |
-| Send from Bridge or without topics | Use `/tell 042 Your instruction`, replacing `042` with the exact three-digit code from `/status`. |
+| Send from Bridge, without topics, or when Telegram omits the topic | Type normally, then tap the intended session's button. Nothing is sent until you choose. |
+| Address a session explicitly | Use `/tell 042 Your instruction`, replacing `042` with the exact three-digit code from `/status`. |
 | Check sessions | Send `/status`. Inside a session topic it shows that session; in Bridge it lists your selections. |
 | Show help | Send `/help`. |
+
+Session routing depends on the topic information Telegram includes, not the
+topic name visible on your phone. When a fresh ordinary message has no destination,
+the bot replies to it with **session buttons**. Tap the intended session to send
+that exact message, or **Cancel this message** to discard it without canceling any
+agent work. Each message has its own choices; choosing once never establishes a
+default for later messages. Buttons include stable three-digit codes to distinguish
+duplicate names, with Previous/Next pages when needed.
+
+The bridge holds the unsent text **only in the connected hub's memory**, not on
+disk. It discards it on cancellation, use, disconnect, restart, or removal of its
+source receipt from the existing 200-completed-input history. Old buttons cannot
+restore or replay it. If a chooser expires, send a fresh message; previously
+rejected messages are not recovered automatically. This handles missing topic
+metadata without guessing its cause or the session you intended.
+
+Messages with valid session topics still go directly. Replying to a non-question
+bot message in that topic or using `/tell 042 ...` also supplies an explicit
+destination. A stale or unmatched reply is not converted into a new message.
+You can compare routing paths safely with `/status`, which reports bridge status
+without sending an instruction to an agent.
 
 After a phone message or answer:
 
@@ -166,6 +189,10 @@ After a phone message or answer:
 Plans, permissions and structured forms stay in Copilot. Ordinary text does not
 bypass a pending decision, and stale question replies are rejected. An uncertain
 app action or Telegram send is recorded rather than automatically replayed.
+Before sending an answer, check that the reply preview identifies the current
+question, not an earlier result or topic message. Typing a regular message does
+not answer a pending question. Once answered, the original question is updated
+to show the answer.
 
 ## Multiple computers
 
@@ -191,7 +218,11 @@ Use a harmless test session and a fresh Telegram message:
 4. Send a new harmless instruction directly in the topic. Confirm the agent
    receives it, the first response arrives before a longer task finishes, and
    the final result arrives at idle.
-5. Confirm locked-phone notifications are permitted in Telegram and by your
+5. Type a separate harmless instruction in Bridge. Confirm it waits without
+   reaching Copilot, then tap the test session and confirm that exact instruction
+   and its response arrive once. Cancel another unsent message and confirm it
+   does not reach the agent.
+6. Confirm locked-phone notifications are permitted in Telegram and by your
    phone's notification/Focus settings.
 
 A successful local test suite, an open panel, or `connected: true` alone does
@@ -214,6 +245,11 @@ confirmation fails. **Uncertain** or **Interrupted** requires inspection, not
 automatic resending. Receipts store metadata and a content hash, not incoming
 message text. They start with this version and cannot reconstruct older missing
 messages. Telegram check marks or a later idle notification are not app receipts.
+Destination choices have separate **Awaiting destination**, **Chosen**,
+**Canceled**, **Expired** and uncertain-notification labels. Chosen is not app
+acceptance: inspect the linked selection-update receipt for the actual app
+outcome. Selection callbacks refer back to the original message's update ID.
+Pending text is never included in the panel or read-only status.
 
 If receipt storage fails, incoming processing pauses before acknowledging further
 updates. Preserve local state and inspect the failure before restarting; do not
@@ -236,6 +272,11 @@ bot**. Reopening only the hub panel does not reload listeners in other sessions.
 Repeat the harmless round-trip check after listener changes. If using the app's
 installer to update, first confirm its overwrite behavior preserves local
 artifacts; the manual source-only update above makes that boundary explicit.
+
+Destination buttons and question-instruction wording run only in the hub.
+If updating only those paths, a safe hub-provider reload and explicit saved-bot
+reconnection suffice; monitored sessions' existing listeners need not restart.
+Reopening the canvas alone does not reload provider code.
 
 ## Troubleshooting
 

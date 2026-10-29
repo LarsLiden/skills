@@ -110,7 +110,7 @@ test("missing answer is explicitly unavailable and a delayed exact receipt upgra
     f.rows[0].awaiting_user_input = false;
     delete f.rows[0].awaiting_input;
     await f.bridge.sync();
-    assert.match(f.edits[0]?.text ?? "", /Question may have been answered elsewhere or closed\.\nAnswer unavailable\.$/);
+    assert.match(f.edits[0]?.text ?? "", /Question answered elsewhere or closed\.\nAnswer unavailable\.$/);
     assert.doesNotMatch(f.edits[0].text, /Answered|Answer: (First|Second)/);
     await f.bridge.sync();
     assert.equal(f.edits.length, 1);
@@ -166,7 +166,7 @@ test("multiple completions before one scan retain separate answers and never inf
     await f.bridge.sync();
     assert.equal(f.request.resolution.answer, "First");
     assert.equal(second.resolution.answer, null);
-    assert.match(f.edits.at(-1).text, /Question may have been answered elsewhere or closed\.\nAnswer unavailable\.$/);
+    assert.match(f.edits.at(-1).text, /Question answered elsewhere or closed\.\nAnswer unavailable\.$/);
     assert.equal(f.appAnswers.length, 0);
 });
 

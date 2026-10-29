@@ -50,10 +50,12 @@
     <p id="session-help" class="muted">Connect your bot to manage sessions.</p>
     <p>Opt-in shares the session name, question text and answer choices with Telegram.
       Bot chats are <strong>not end-to-end encrypted</strong>. Only select sessions whose questions
-      are suitable for Telegram. Idle notifications also share the latest assistant reply when enabled.
+      are suitable for Telegram. Captured public final replies are also shared promptly.
       Full conversations, reasoning, files and tool arguments are not forwarded.</p>
-    <label class="check"><input id="idle" type="checkbox" disabled>When an opted-in session goes idle, send its last assistant reply</label>
-    <p class="muted">Idle does not prove success: the agent may be finished or blocked.
+    <label class="check"><input id="idle" type="checkbox" disabled>Send a separate notice after 15 quiet minutes of reported idle</label>
+    <p class="muted">Final replies and questions do not wait for this timer or depend on this setting.
+      New observed messages, tool activity or job changes reset it. Unknown or disconnected status does not count.
+      Inactivity does not prove success or that hidden, detached or external work stopped.
       After installing the listener, reload extensions in the monitored sessions once, or restart the app.
       It captures future replies only; earlier messages are not replayed.</p>
     <div id="sessions"></div>
@@ -120,7 +122,8 @@
       Unsent text is kept only in the hub's memory while connected and its recent receipt is retained;
       disconnecting or restarting discards it. Old buttons cannot resend it.</p>
     <p>After a phone message or question answer, the first public reply is sent as soon as captured
-      (<strong>* REPLY *</strong>); the final result still follows at idle when idle notices are enabled.
+      (<strong>* REPLY *</strong>); a different final result follows promptly at native idle
+      (<strong>* FINAL *</strong>), independently of the inactivity setting.
       Reload the extension in this hub and monitored sessions to enable first-reply capture.</p>
     <p>Plans, permissions and forms stay in Copilot. Unsupported prompts produce an alert
       when exposed by the app; tool-permission alert coverage is not yet qualified.

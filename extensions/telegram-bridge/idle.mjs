@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { watch } from "node:fs";
 import { join } from "node:path";
 import { atomicWrite, readText, removeFile } from "./storage.mjs";
 import { safeId } from "./bridge.mjs";
@@ -44,6 +45,14 @@ export class IdleReplyStore {
         await removeFile(this.path(id));
     }
     async clear(ids) { for (const id of ids) await this.remove(id); }
+    async watch(onChange, onError) {
+        await mkdir(this.directory, { recursive: true });
+        const watcher = watch(this.directory, (_, filename) => {
+            if (filename === null || /^[A-Za-z0-9._-]+\.json$/.test(String(filename))) onChange();
+        });
+        watcher.on("error", error => { watcher.close(); onError(error); });
+        return watcher;
+    }
 }
 
 export class IdleListener {
@@ -65,7 +74,7 @@ export class IdleListener {
         this.diagnostics = captureDiagnostics();
     }
     eligible(state) {
-        return state.enabled && state.notifyIdle && state.peer &&
+        return state.enabled && state.peer &&
             typeof state.idleEpoch === "string" && typeof state.sessions[this.sessionId]?.idleSelectionId === "string";
     }
     handle(event) {

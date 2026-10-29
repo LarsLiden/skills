@@ -109,7 +109,7 @@ test("first public tool-adjacent reply goes out before idle and final result sti
     await idle.handle(f.event("session.idle"));
     f.row.activity.status = "idle";
     await f.bridge.sync();
-    assert.match(f.sent.at(-1).text, /\* IDLE \*\n\nThe work is done\.$/);
+    assert.match(f.sent.at(-1).text, /\* FINAL \*\n\nThe work is done\.$/);
     await listener.close();
     assert.deepEqual(f.errors, []);
 });
@@ -435,4 +435,50 @@ test("first reply restart fences interrupted dispatch and exposes unresolved del
         assert.ok(status.unresolved.some(r => r.state === "first-reply-uncertain"));
         assert.ok(status.unresolved.some(r => r.state === "phone-input-uncertain"));
     } finally { await service.close(); await rm(directory, { recursive: true }); }
+});
+
+test("the same native first/final reply is shared in either capture order without retrying uncertain sends", async () => {
+    for (const order of ["first", "final"]) {
+        for (const uncertain of [false, true]) {
+            const f = await fixture();
+            await f.bridge.tell(1, "042", "Please work");
+            const first = await f.listen(); await f.user();
+            const final = new IdleListener({ sessionId: "target", stateStore: f.store, replies: f.idleReplies,
+                notify: message => f.errors.push(message) });
+            await final.handle(f.event("assistant.turn_start"));
+            const message = f.event("assistant.message", {
+                messageId: "shared-public-result", content: "One public result", phase: "final_answer",
+                interactionId: "interaction-1", turnId: "1",
+            });
+            let attempts = 0;
+            const send = f.telegram.send;
+            f.telegram.send = async (...args) => {
+                attempts++;
+                if (uncertain) throw new Error("Uncertain Telegram delivery");
+                return send(...args);
+            };
+            const forward = async operation => {
+                if (uncertain && attempts === 0) await assert.rejects(operation(), /Uncertain/);
+                else await operation();
+            };
+            if (order === "first") {
+                await first.handle(message);
+                await forward(() => f.bridge.forwardFirstReplies());
+            }
+            await final.handle(message); await final.handle(f.event("session.idle"));
+            f.row.activity.status = "idle";
+            await forward(() => f.bridge.sync());
+            if (order === "final") {
+                await first.handle(message);
+                await f.bridge.forwardFirstReplies();
+            }
+            await f.bridge.sync(); await f.bridge.forwardFirstReplies();
+            assert.equal(attempts, 1, `${order}/${uncertain}`);
+            assert.equal(f.inputs()[0].delivery.state, uncertain ? "uncertain" : order === "first" ? "sent" : "shared");
+            assert.equal(f.bridge.state.signals.target.idleDelivery.state,
+                uncertain ? "uncertain" : order === "first" ? "shared" : "sent");
+            assert.deepEqual(f.errors, []);
+            await first.close(); await final.close();
+        }
+    }
 });

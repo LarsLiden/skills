@@ -229,9 +229,22 @@ After a phone message or answer:
 - **`* REPLY *`** contains the first captured complete public agent reply,
   including a progress preamble when available, without waiting for the job to
   finish. Partial streaming tokens, reasoning and tool arguments are not sent.
-- **`* IDLE *`** contains the final captured result when the session becomes idle,
-  if idle notices are enabled. If its only reply was already final, that text can
-  appear again with the separate idle transition.
+- **`* FINAL *`** contains the final captured result promptly at native session
+  idle, independently of the inactivity setting. If the same native message or
+  task-summary event was already forwarded as the first reply, it is not sent again.
+- **Inactive for 15 minutes** is a separate, optional notice, not another copy
+  of the result. It requires 15 continuous minutes of app-reported idle with no
+  newly observed messages, tool activity or job-status events. Activity resets the
+  timer, with only one notice per quiet period. Questions never wait for it.
+
+Unknown/unavailable status, pending questions/plans/permissions/forms, app scan
+failures, a stale/missing listener or an observation gap stop the quiet timer.
+Reconnect, reselection and provider/app restart require a new observation baseline;
+time while disconnected is not credited. The hub scans normally every 15 seconds,
+so a qualifying notice may arrive later than the exact 15-minute boundary, never
+earlier. Listener heartbeats are local liveness observations, not proof that every
+SDK event or hidden job was visible. Repeated unchanged scans do not reset time.
+The notice does not mean the task succeeded or that detached/external work stopped.
 
 Plans, permissions and structured forms stay in Copilot. Ordinary text does not
 bypass a pending decision, and stale question replies are rejected. An uncertain
@@ -264,13 +277,18 @@ Use a harmless test session and a fresh Telegram message:
    and the original question shows the accepted answer.
 4. Send a new harmless instruction directly in the topic. Confirm the agent
    receives it, the first response arrives before a longer task finishes, and
-   the final result arrives at idle.
+   a different final result arrives promptly at native idle even with inactivity
+   notices disabled. An identical first/final native reply should appear only once.
 5. Type a separate harmless instruction in Bridge. Confirm it waits without
    reaching Copilot, then tap the test session and confirm that exact instruction
    and its response arrive once. Cancel another unsent message and confirm it
    does not reach the agent.
 6. Confirm locked-phone notifications are permitted in Telegram and by your
    phone's notification/Focus settings.
+7. With inactivity notices enabled, leave the session idle and quiet for 15 minutes.
+   Confirm one **Inactive for 15 minutes** notice, no repeated reminders, and a
+   full fresh quiet period after new activity. Confirm a pending question still
+   alerts promptly instead of waiting for that timer.
 
 A successful local test suite, an open panel, or `connected: true` alone does
 not verify the entire phone round trip. If a message's outcome is uncertain,
@@ -325,6 +343,14 @@ If updating only those paths, a safe hub-provider reload and explicit saved-bot
 reconnection suffice; monitored sessions' existing listeners need not restart.
 Reopening the canvas alone does not reload provider code.
 
+The 15-minute inactivity behavior changes both the hub and per-session listeners.
+Install all top-level files, including `activity.mjs`, then safely reload the hub
+and each monitored session (or restart Copilot when jobs can be interrupted) and
+explicitly reconnect the saved bot in the **existing hub**. A hub-only update is
+insufficient. Publishing a working branch does not update `main` or your installed
+extension; choose that branch/commit explicitly when downloading this change.
+Do not copy or reset artifacts, replay old phone messages, or create a new hub.
+
 ## Troubleshooting
 
 | Symptom | What to check |
@@ -350,6 +376,12 @@ The bridge does not provide blanket approvals, remote desktop control, historica
 transcript replay or guaranteed coverage of every Copilot dialog. It does not
 diagnose stalled native jobs, and idle is not proof of success. Remote-host
 sessions and different desktop builds need their own live qualification.
+Inactivity observes app activity status and delivered SDK message/tool/subagent/
+background-change events only; it is not a native job-queue monitor. SDK background
+change events expose no job-state payload in the verified declarations. Missing
+events, hidden jobs and activity entirely between app polls without a delivered
+listener event cannot be reconstructed. Listener liveness is checked against a
+45-second maximum observation gap, not an instantaneous disconnect signal.
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for the implementation contracts, storage,
 privacy boundaries and test instructions.

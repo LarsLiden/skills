@@ -8,6 +8,7 @@ import { IdleListener, IdleReplyStore } from "./idle.mjs";
 import { AnswerListener, AnswerReceiptStore } from "./answers.mjs";
 import { FirstReplyListener, FirstReplyStore } from "./first-reply.mjs";
 import { HubRole } from "./hub-role.mjs";
+import { ActivityListener, ActivityStore } from "./activity.mjs";
 
 const directory = fileURLToPath(new URL("./artifacts/", import.meta.url));
 const hubRole = new HubRole(directory);
@@ -77,7 +78,15 @@ const firstReplyListener = new FirstReplyListener({
     sessionId: session.sessionId, stateStore: new Store(directory), replies: new FirstReplyStore(directory),
     notify: message => session.log(`Telegram first reply: ${message}`, { level: "warning", ephemeral: false }),
 });
+const activityListener = new ActivityListener({
+    sessionId: session.sessionId, stateStore: new Store(directory), observations: new ActivityStore(directory),
+    notify: message => session.log(`Telegram activity observation: ${message}`, { level: "warning", ephemeral: false }),
+});
+void activityListener.heartbeat();
+const heartbeat = setInterval(() => { void activityListener.heartbeat(); }, 15_000);
+heartbeat.unref();
 const unsubscribe = session.on(event => {
+    void activityListener.handle(event);
     void listener.handle(event);
     void answerListener.handle(event);
     void firstReplyListener.handle(event);
@@ -86,8 +95,9 @@ let closing = false;
 async function close() {
     if (closing) return;
     closing = true;
+    clearInterval(heartbeat);
     unsubscribe();
-    try { await listener.close(); await answerListener.close(); await firstReplyListener.close(); await service?.close(); await panel?.close(); }
+    try { await activityListener.close(); await listener.close(); await answerListener.close(); await firstReplyListener.close(); await service?.close(); await panel?.close(); }
     catch { await session.log("Telegram bridge shutdown was not clean; check its owner process before reconnecting.", { level: "error" }); }
 }
 process.once("SIGTERM", () => { void close().finally(() => process.exit(0)); });

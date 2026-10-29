@@ -80,7 +80,7 @@ activate it. No monitored-listener reload or whole-app restart is required.
 
 Opt-in sends session names, question text, choices and captured answers to Telegram.
 After a phone message or answer, it also forwards the first public assistant reply.
-When idle notifications are enabled, it sends the latest public final reply as well.
+It sends the latest public final reply independently of the inactivity-notice setting.
 Bot chats are not end-to-end encrypted. Do not opt sensitive sessions in.
 Whole conversations, reasoning, files and tool arguments are not forwarded.
 Phone notifications still depend on Telegram and the phone's notification/Focus settings.
@@ -102,8 +102,9 @@ Phone notifications still depend on Telegram and the phone's notification/Focus 
 - In a session topic, type an ordinary message or use **Reply** on a non-question
   message; no `/tell` prefix is required. After a new message or question answer,
   the first public reply appears as **\* REPLY \*** as soon as captured.
-  The existing **\* IDLE \*** final result still follows when the session becomes
-  idle. The immediate app-acceptance acknowledgment is not Copilot's answer.
+  A different **\* FINAL \*** result follows promptly at native session idle.
+  Optional **Inactive for 15 minutes** notices are separate from replies.
+  The immediate app-acceptance acknowledgment is not Copilot's answer.
 - `/status` lists opted-in sessions and their three-digit numeric codes.
 - `/tell 042 Your instruction` sends a new message to that exact opted-in
   session, unless it is currently awaiting a decision.
@@ -173,9 +174,11 @@ If the first public response is a native task-completion summary, its original
 completion-event ID is retained instead of inventing a message ID. It must follow
 the correlated root turn without an intervening unrelated input; forwarding it
 does not assert the task succeeded.
-The existing final-result notification remains independent. If the first reply
-is already the final answer, the later idle notification can contain that same
-answer; the idle marker reports a separate transition, not another agent response.
+The final-result notification remains independent of the inactivity timer.
+First/final capture ordering does not cause a second send of the same native
+message ID or completion-event ID: the hub shares its receipt (or preserves
+uncertainty) within the same connection, selection and topic. Different native
+replies are still forwarded, even if their text happens to match.
 
 Each phone input is recorded before app dispatch, using a text hash rather than
 storing the incoming message. New-message capture requires the exact hub source,
@@ -202,8 +205,8 @@ Uncertain app input and first-reply delivery appear separately in unresolved sta
 This feature requires reloading the extension in the hub **and each monitored
 session**, or a user-performed whole-app restart when safe. A hub-only replacement
 does not update existing capture listeners. Do not replay old Telegram inputs to
-activate it. New first replies do not depend on the optional idle-notice toggle;
-the final-result notification still follows that toggle.
+activate it. Neither first replies nor final results depend on the optional
+inactivity-notice toggle.
 
 ### Answered questions
 
@@ -450,7 +453,7 @@ outcomes in the app; deleting/recreating a topic does not authorize an action re
 Pending answered/uncertain control attempts still cannot be replayed.
 The local panel polls only this bridge's in-memory state, without AI requests.
 
-Idle notifications include the most recent public final assistant message or
+Final-result notifications include the most recent public final assistant message or
 agent task-completion summary captured by the personal extension in that selected
 session. The listener uses native `assistant.message` (including the
 `final_answer` phase), `session.task_complete` and `session.idle` events, never
@@ -474,8 +477,15 @@ hub does not update monitored-session listeners. No extra agents are launched, a
 before the listener was enabled are not replayed.
 
 Only the latest reply is cached per selected session, scoped to its current opt-in
-and bridge connection. Disconnecting, opting out or disabling idle notifications
-clears the corresponding caches. A missing capture gets up to 30 seconds to arrive
+and bridge connection. Disconnecting or opting out clears the corresponding
+caches; disabling inactivity notices does not disable or erase final capture.
+The hub watches the final-cache directory and schedules a serialized app refresh;
+the normal 15-second scan is the backup if a filesystem notification is missed.
+A captured result is forwarded independently of current busy/unknown status, so
+a later run, pending decision or lagging busy scan cannot silently suppress it. The busy-transition
+baseline records which capture was already consumed, rather than comparing wall
+timestamps that can invert capture/status ordering.
+A missing capture gets up to 30 seconds to arrive
 on the normal polling loop; if none arrives, an explicit notice explains that the
 reply was not captured. Confirmed silent turns stay quiet: current capture diagnostics
 must show an observed empty public final message, its matching stream start, and no
@@ -486,13 +496,13 @@ streams and canceled runs retain explicit notices; silence is not used to hide a
 capture failure or substitute an older exchange's message.
 Long replies are split into numbered Telegram
 messages without truncation. Partial or uncertain sends are recorded for inspection
-and never automatically retried. Replying to an idle notification in a session topic submits
+and never automatically retried. Replying to a result/notification in a session topic submits
 a new instruction, not an answer to a question. The existing enabled idle-capture
 path forwards Copilot's next public reply when the session becomes idle. A silent
 turn still stays quiet, and missing captures remain explicit rather than inventing
 a response.
 
-Only the latest successful idle notification's message IDs are retained for
+Only the latest successful final-result or inactivity notification's message IDs are retained for
 explicit reply routing outside session topics, including
 all parts of a long reply, and they survive a normal hub restart or a later silent
 turn that produces no visible notification. Outside a session topic, the bridge checks
@@ -512,16 +522,71 @@ above requires updated monitored-session listeners too. Any pending listener/sto
 repair retains its own all-provider reload requirement. No old idle notification or
 uncertain app message is resent to enable these features.
 
-Idle notices show the session heading, the compact `* IDLE *` label, then the
-reply itself without a "Last assistant message" introduction. Multi-part replies
-keep a short `(part 1/2)` marker. One new idle event can produce one
-notification (split into parts for a long reply); confirmed silent turns produce
-none, and remaining idle does not cause repeated reminders. The runtime's
-`session.idle` waits for attached shell commands and background agents to finish;
-the separate `assistant.idle` processing-loop event is not used by this listener.
-The hub also checks app-reported activity and reports a missing capture after its
-timeout. Idle is not proof of task success, and detached or external processes are
-not tracked. Plans/forms and
+Final results show the session heading, `* FINAL *`, then the captured reply.
+Multipart replies keep `(part 1/2)` markers. One native idle event can produce one
+final delivery; a proven silent turn produces no final message. This does not
+disable the separate optional inactivity notice.
+
+### Observed inactivity, not task completion
+
+`notifyIdle` is retained as the saved preference key, but now controls only a
+separate **Inactive for 15 minutes** notice. The hub's per-session in-memory quiet
+baseline requires app `activity.status === "idle"` on every successful scan,
+no app-reported question/plan/permission, and a current scoped activity observation.
+Unknown/missing/retired sessions, pending decisions, app failures, canceled scans,
+unready destinations or a stale app snapshot/scan/listener gap over 45 seconds
+discard elapsed time. New explicitly addressed phone inputs also reset that session's baseline
+before dispatch, rather than waiting for its SDK message event.
+The threshold is exactly 900,000 milliseconds; normal 15-second scanning and RPC
+latency can delay delivery but never shorten that threshold. An unchanged scan or
+heartbeat is not activity. New activity resets the baseline even after a notice;
+there is no repeated reminder within the same observed quiet period.
+
+Each selected session's `ActivityListener` subscribes to delivered SDK message,
+assistant, tool start/progress/partial/complete, subagent lifecycle, pending-message,
+command, decision and `system.notification` events, plus
+`session.background_tasks_changed` and plan changes. It includes child/tool
+activity for timing, unlike the root-only public-reply capture. Native root
+`session.idle` clears an observed busy state; repeated idle signals do not reset
+quiet time. Pending SDK question/permission/plan/form request IDs remain blocking
+until their matching completion. A heartbeat every 15 seconds writes only
+liveness, not activity; an observer restart changes the revision. No AI polling,
+coordinator messages or job-status guesses are involved.
+
+SDK verification used the installed canonical `docs/extensions.md`,
+`docs/agent-author.md`, `canvas.d.ts` and `generated/session-events.d.ts`.
+Extension-management/reload tools were not available during this source change;
+no live provider reload or Telegram delivery was performed.
+The verified `session.idle` contract describes no background agents in flight.
+`session.background_tasks_changed` has an empty data interface: it signals a
+change, not job identities, states or success. No undocumented app job fields are
+used. The existing app `activity.status` and `awaiting_*` fields remain the app
+status surface. The listener captures rapid delivered busy/tool/idle changes
+between polls, but cannot reconstruct missed SDK events, pre-activation activity,
+hidden jobs or detached/external processes. A live heartbeat proves only that
+the provider can run and access shared state; it is not an instantaneous transport
+disconnect detector. App RPC failures and SDK error/shutdown observations block
+inactivity. These limits are why the notice says **observed** inactivity and
+explicitly disclaims task success and stopped hidden/detached/external work.
+
+Restart/reconnect/reselection starts a fresh scoped baseline; no disconnected time
+is credited. The idle preference changes neither the reply epoch nor reply caches.
+Before sending, the hub rechecks the activity revision and checkpoints a distinct
+`inactivityDelivery` receipt. Confirmed message/chat/topic identity and a saved
+receipt are required to replace the retained reply target. Partial/uncertain sends
+stay visible in unresolved status and are never automatically retried. A restart
+turns interrupted `notifying` attempts into `uncertain`; unchanged observations
+cannot resend a retained notice. Uncertain notices block another attempt in that
+same connection/selection/destination scope even after further activity.
+
+Install all top-level source files including `activity.mjs` in the existing user
+installation, preserving `artifacts`. Safely reload both the existing hub and each
+monitored provider, or restart the app when jobs can be interrupted, then reopen
+the existing hub and explicitly **Connect saved bot**. Merely reopening the canvas
+or publishing this branch does not activate the source. No hub re-designation or
+automatic deployment is needed for maintenance.
+
+Plans/forms and
 unsupported or oversized questions are alert-only when exposed in app status.
 App-owned tool-permission alert coverage and remote-host prompts require live
 qualification; there is no claim that every app dialog is visible. Underlying
@@ -580,6 +645,12 @@ The corresponding `state.json` signal retains the latest delivery attempt and a
 separate confirmed `idleReply` receipt with Telegram message IDs and reply-target
 binding, not another copy of the reply text. The confirmed receipt changes only
 after a complete successful send has been saved.
+`artifacts/activity/` holds one current observation per selected session: scope,
+revision, last heartbeat time and busy/available/pending flags, never message text,
+tool arguments, job output or a transcript. Old scope files are inert and are not
+replayed. The quiet timer itself is deliberately not restored from disk.
+`state.json` retains the separate inactivity delivery attempt and its confirmed
+reply target; uncertain final and inactivity sends remain separately visible.
 `artifacts/bot.dpapi` stores the token encrypted for the current Windows
 user. Credentials are passed to Windows encryption through stdin, never process
 arguments, and are never returned by the canvas's agent-readable status action.
@@ -596,7 +667,7 @@ Telegram errors deliberately exclude tokens, API URLs and upstream descriptions.
 On the verified Windows/Node runtime, replacing an existing file can fail with
 `EPERM` while a normal reader holds it open, even with delete-sharing enabled.
 The bridge's per-session listeners and hub therefore coordinate all reads,
-atomic replacements and removals of state, idle/first-reply caches and answer receipts
+atomic replacements and removals of state, activity observations, idle/first-reply caches and answer receipts
 through one Windows named-pipe lock per normalized file path. Credential storage
 uses the same file helper without changing DPAPI encryption. The pipe carries
 no file contents, is separate from hub ownership and is released by the OS if
@@ -656,8 +727,14 @@ Live acceptance is separate: extension discovery, app RPC access, a dedicated
 Telegram bot paired by the user, locked-phone delivery and an actual question
 reply must all be checked before calling the integration fully qualified.
 
+Fake-clock regressions cover the exact 15-minute boundary, repeated unchanged
+scans, tool-only and between-poll activity, decision blockers, liveness/status gaps,
+per-session isolation, lifecycle resets, prompt finals/questions, the existing
+30-second missing-capture grace and non-retried uncertain deliveries.
+
 Local tests are not evidence of a successful phone round trip. Check the first
-public response, later idle result, original-question answer edit and exact topic
+public response, prompt final result, separate delayed inactivity notice,
+original-question answer edit and exact topic
 destination on the new installation. Listener or file-access changes require
 reloaded hub/monitored-session providers. Keep uncertain actions and failed
 checks unresolved rather than treating a successful reload as delivery evidence.

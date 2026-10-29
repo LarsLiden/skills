@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { IdleReplyStore } from "./idle.mjs";
 import { AnswerReceiptStore } from "./answers.mjs";
 import { FirstReplyStore } from "./first-reply.mjs";
+import { ActivityStore } from "./activity.mjs";
 
 const wait = (ms, signal) => new Promise(resolve => {
     const finish = () => { clearTimeout(timer); signal?.removeEventListener("abort", finish); resolve(); };
@@ -21,8 +22,9 @@ export class Service {
         this.idleReplies = new IdleReplyStore(directory);
         this.answerReceipts = new AnswerReceiptStore(directory);
         this.firstReplies = new FirstReplyStore(directory);
+        this.observations = new ActivityStore(directory);
         this.bridge = new Bridge({ app, store: this.store, selfId, idleReplies: this.idleReplies,
-            answerReceipts: this.answerReceipts, firstReplies: this.firstReplies });
+            answerReceipts: this.answerReceipts, firstReplies: this.firstReplies, observations: this.observations });
         this.queue = Promise.resolve();
         this.error = null;
         this.health = Object.fromEntries(["poll", "monitor", "inbound", "reply", "action"].map(name => [name, {
@@ -35,6 +37,7 @@ export class Service {
         this.releaseOwner = null;
         this.controller = null;
         this.firstReplyWatcher = null;
+        this.finalReplyWatcher = null;
     }
 
     async initialize() {
@@ -50,6 +53,7 @@ export class Service {
             }
             for (const signal of Object.values(this.bridge.state.signals)) {
                 if (signal.idleDelivery?.state === "notifying") signal.idleDelivery.state = "uncertain";
+                if (signal.inactivityDelivery?.state === "notifying") signal.inactivityDelivery.state = "uncertain";
             }
             for (const input of Object.values(this.bridge.state.phoneInputs ?? {})) {
                 if (input.state === "attempting") input.state = "uncertain";
@@ -84,6 +88,8 @@ export class Service {
         this.bridge.expireDestinations("Receiving paused; buffered messages were discarded.");
         this.controller?.abort();
         this.firstReplyWatcher?.close(); this.firstReplyWatcher = null;
+        this.finalReplyWatcher?.close(); this.finalReplyWatcher = null;
+        this.bridge.quiet.clear();
         this.connected = false;
         this.bridge.state.enabled = false;
     }
@@ -137,6 +143,8 @@ export class Service {
                 .map(r => ({ sessionId: r.sessionId, state: r.state }))
                 .concat(Object.entries(b.state.signals).filter(([, s]) => ["notifying", "uncertain"].includes(s.idleDelivery?.state))
                     .map(([sessionId]) => ({ sessionId, state: "idle-notification-uncertain" })))
+                .concat(Object.entries(b.state.signals).filter(([, s]) => ["notifying", "uncertain"].includes(s.inactivityDelivery?.state))
+                    .map(([sessionId]) => ({ sessionId, state: "inactivity-notification-uncertain" })))
                 .concat(Object.values(b.state.requests).filter(r => ["attempting", "uncertain"].includes(r.messageUpdate?.state))
                     .map(r => ({ sessionId: r.sessionId, state: "question-update-uncertain" })))
                 .concat(Object.values(b.state.phoneInputs ?? {}).filter(input => ["attempting", "uncertain"].includes(input.state))
@@ -211,10 +219,8 @@ export class Service {
                 case "idle":
                     if (typeof input.enabled !== "boolean") throw new Error("Idle notification preference must be explicit.");
                     this.bridge.state.notifyIdle = input.enabled;
-                    this.bridge.state.idleEpoch = randomUUID();
-                    for (const signal of Object.values(this.bridge.state.signals)) delete signal.idlePending;
+                    this.bridge.quiet.clear();
                     await this.bridge.save();
-                    await this.idleReplies.clear(Object.keys(this.bridge.state.sessions));
                     break;
                 case "stop": break;
                 case "forget":
@@ -262,9 +268,10 @@ export class Service {
         this.bridge.telegram = telegram;
         this.bridge.state.enabled = Boolean(this.bridge.state.peer);
         this.bridge.state.idleEpoch = randomUUID();
+        this.bridge.quiet.clear();
         for (const selected of Object.values(this.bridge.state.sessions)) selected.idleSelectionId ??= randomUUID();
         for (const signal of Object.values(this.bridge.state.signals)) {
-            delete signal.activity; delete signal.busySince; delete signal.idlePending;
+            delete signal.activity; delete signal.busySince; delete signal.busyReplyEventId; delete signal.idlePending;
         }
         await this.bridge.save();
         this.controller = new AbortController();
@@ -278,7 +285,21 @@ export class Service {
                     }, "reply").catch(() => {});
                 }
             }, error => this.report(error, "reply"));
+            this.finalReplyWatcher = await this.idleReplies.watch(() => {
+                if (!this.connected || signal.aborted || this.finalRefreshPending) return;
+                this.finalRefreshPending = true;
+                void this.serial(async () => {
+                    try {
+                        if (!signal.aborted) {
+                            await this.refresh(signal);
+                            this.succeeded("reply");
+                        }
+                    } finally { this.finalRefreshPending = false; }
+                }, "reply").catch(() => {});
+            }, error => this.report(error, "reply"));
         } catch (error) {
+            this.firstReplyWatcher?.close(); this.firstReplyWatcher = null;
+            this.finalReplyWatcher?.close(); this.finalReplyWatcher = null;
             this.controller.abort(); this.controller = null;
             this.bridge.state.enabled = false;
             await this.bridge.save();
@@ -336,6 +357,8 @@ export class Service {
     async stop() {
         this.controller?.abort();
         this.firstReplyWatcher?.close(); this.firstReplyWatcher = null;
+        this.finalReplyWatcher?.close(); this.finalReplyWatcher = null;
+        this.bridge.quiet.clear();
         await Promise.all([this.polling, this.monitoring]);
         this.controller = null;
         this.connected = false;

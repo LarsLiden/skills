@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { initialTopics, validateTopics, TopicRouter } from "./topics.mjs";
 import { phoneInputHash, firstReplyEligible } from "./first-reply.mjs";
+import { INACTIVITY_MS, OBSERVATION_GAP_MS } from "./activity.mjs";
 
 export function initialState() {
     return { version: 2, enabled: false, peer: null, bot: null, sessions: {}, aliases: {}, requests: {},
@@ -74,16 +75,18 @@ export function questionOf(row) {
 }
 
 export class Bridge {
-    constructor({ app, telegram, store, selfId, idleReplies, answerReceipts, firstReplies, now = Date.now }) {
-        Object.assign(this, { app, telegram, store, selfId, idleReplies, answerReceipts, firstReplies, now });
+    constructor({ app, telegram, store, selfId, idleReplies, answerReceipts, firstReplies, observations, now = Date.now }) {
+        Object.assign(this, { app, telegram, store, selfId, idleReplies, answerReceipts, firstReplies, observations, now });
         this.state = initialState();
         this.pairing = null;
         this.rows = [];
         this.persistenceFailed = false;
         this.pendingDestinations = new Map();
+        this.quiet = new Map();
         this.topics = new TopicRouter(this);
     }
     async load() {
+        this.quiet.clear();
         this.pendingDestinations.clear();
         let state = await this.store.load();
         if (state.version === 1) {
@@ -141,10 +144,13 @@ export class Bridge {
             await this.store.save(next);
             this.state = next;
         } else {
+            this.quiet.delete(id);
             delete this.state.sessions[id];
             await this.clearFirstReplies(id);
-            const delivery = this.state.signals[id]?.idleDelivery;
-            if (["notifying", "uncertain"].includes(delivery?.state)) this.state.signals[id] = { idleDelivery: delivery };
+            const retained = Object.fromEntries(["idleDelivery", "inactivityDelivery"]
+                .filter(field => ["notifying", "uncertain"].includes(this.state.signals[id]?.[field]?.state))
+                .map(field => [field, this.state.signals[id][field]]));
+            if (Object.keys(retained).length) this.state.signals[id] = retained;
             else delete this.state.signals[id];
             const route = this.state.topics.sessions[id];
             if (route) route.retirementReason ??= reason;
@@ -184,9 +190,15 @@ export class Bridge {
     }
 
     async sync(signal) {
-        const rows = await this.app.list();
+        let rows;
+        try { rows = await this.app.list(); }
+        catch (error) { this.quiet.clear(); throw error; }
+        const statusAt = this.now();
         this.rows = rows;
-        if (!this.state.enabled || !this.state.peer) return;
+        if (!this.state.enabled || !this.state.peer) { this.quiet.clear(); return; }
+        for (const id of this.quiet.keys()) {
+            if (!this.state.sessions[id] || !rows.some(row => row.id === id && !retirement(row))) this.quiet.delete(id);
+        }
         const errors = [];
         try { await this.forwardFirstReplies(signal); }
         catch (error) { errors.push(error.message); }
@@ -225,9 +237,12 @@ export class Bridge {
             }
             const row = rows.find(r => r.id === id);
             if (!row || retirement(row)) continue;
-            if (this.state.topics.enabled && (this.state.topics.sessions[id]?.state !== "ready" || this.state.topics.sessions[id]?.deletion)) continue;
-            try { await this.syncSession(id, selected, row, signal); }
-            catch (error) { errors.push(error.message); }
+            if (this.state.topics.enabled && (this.state.topics.sessions[id]?.state !== "ready" || this.state.topics.sessions[id]?.deletion)) {
+                this.quiet.delete(id);
+                continue;
+            }
+            try { await this.syncSession(id, selected, row, signal, statusAt); }
+            catch (error) { this.quiet.delete(id); errors.push(error.message); }
         }
         const entries = Object.entries(this.state.requests);
         for (const [, r] of entries) {
@@ -246,6 +261,7 @@ export class Bridge {
             await this.answerReceipts?.remove(id);
             delete this.state.requests[id];
         }
+        if (signal?.aborted) this.quiet.clear();
         await this.save();
         if (errors.length) throw new Error(errors.join("\n"));
     }
@@ -312,7 +328,7 @@ export class Bridge {
         }
     }
 
-    async syncSession(id, selected, row, abortSignal) {
+    async syncSession(id, selected, row, abortSignal, statusAt) {
         const question = questionOf(row);
         const text = question ? this.questionText(selected, question, this.topics.destination(id)) : "";
         const answerable = question && text.length <= 3700 && question.choices.length <= 12;
@@ -359,17 +375,22 @@ export class Bridge {
         const current = row.activity?.status;
         this.state.signals[id] = { ...this.state.signals[id], activity: current };
         if (current === "busy") {
-            if (previous !== "busy") this.state.signals[id].busySince = this.now();
+            if (previous !== "busy") {
+                this.state.signals[id].busySince = this.now();
+                this.state.signals[id].busyReplyEventId = this.state.signals[id].idleDelivery?.eventId ?? null;
+            }
             delete this.state.signals[id].idlePending;
         }
         await this.save();
-        if (this.state.notifyIdle && this.state.idleEpoch && current === "idle" &&
-            !row.awaiting_user_input && !row.awaiting_plan_approval && !row.awaiting_permission) {
-            await this.notifyIdle(id, selected, previous, abortSignal);
+        if (this.state.idleEpoch) {
+            const allowMissing = current === "idle" && !row.awaiting_user_input &&
+                !row.awaiting_plan_approval && !row.awaiting_permission;
+            await this.forwardFinalReply(id, selected, allowMissing ? previous : null, abortSignal, allowMissing);
         }
+        await this.notifyInactivity(id, selected, row, abortSignal, statusAt);
     }
 
-    async notifyIdle(id, selected, previous, abortSignal) {
+    async forwardFinalReply(id, selected, previous, abortSignal, allowMissing) {
         if (!this.idleReplies) throw new Error("The idle-reply source is not configured.");
         const signal = this.state.signals[id];
         if (previous === "busy" && !signal.idlePending) {
@@ -377,12 +398,13 @@ export class Bridge {
             await this.save();
         }
         const reply = await this.idleReplies.read(id, this.state.idleEpoch, selected.idleSelectionId);
-        const fresh = reply && (!signal.busySince || Date.parse(reply.idleAt) >= signal.busySince);
+        const fresh = reply && reply.eventId !== signal.busyReplyEventId;
         if (fresh && signal.idleDelivery?.eventId === reply.eventId) {
             delete signal.idlePending;
             return;
         }
-        if (!fresh && (!signal.idlePending || this.now() - signal.idlePending.since < 30_000)) return;
+        if (!fresh && (!allowMissing || !signal.idlePending || this.now() - signal.idlePending.since < 30_000)) return;
+        if (fresh) this.quiet.delete(id);
         const capture = reply?.capture, terminal = capture?.lastTerminal;
         if (fresh && reply.content === null && !reply.aborted &&
             capture?.version === 2 && capture.deltas === 0 && capture.taskCompletions === 0 &&
@@ -397,8 +419,29 @@ export class Bridge {
         }
         const eventId = fresh ? reply.eventId : `missing:${signal.idlePending.since}`;
         const content = fresh ? reply.content : null;
-        const prefix = `${sessionHeading(selected, this.topics.destination(id))}\n* IDLE *\n`;
+        const prefix = `${sessionHeading(selected, this.topics.destination(id))}\n* FINAL *\n`;
+        const identity = fresh ? reply.messageId ?? reply.completionEventId : null;
+        const shared = identity && Object.values(this.state.phoneInputs ?? {}).find(input =>
+            input.sessionId === id && input.epoch === this.state.idleEpoch &&
+            input.selectionId === selected.idleSelectionId &&
+            input.threadId === this.topics.destination(id) && input.delivery?.publicIdentity === identity);
+        if (fresh && shared) {
+            signal.idleDelivery = { eventId, state: ["sent", "shared"].includes(shared.delivery.state) ? "shared" : "uncertain",
+                publicIdentity: identity, epoch: this.state.idleEpoch, selectionId: selected.idleSelectionId,
+                threadId: this.topics.destination(id), partsSent: 0, partCount: 0 };
+            delete signal.idlePending;
+            await this.save();
+            return;
+        }
         const parts = [];
+        const prior = signal.idleDelivery;
+        if (fresh && identity && prior?.publicIdentity === identity &&
+            prior.epoch === this.state.idleEpoch && prior.selectionId === selected.idleSelectionId &&
+            prior.threadId === this.topics.destination(id)) {
+            prior.eventId = eventId;
+            delete signal.idlePending;
+            return;
+        }
         if (content !== null) {
             for (let start = 0; start < content.length;) {
                 let end = Math.min(start + 3500, content.length);
@@ -415,7 +458,10 @@ export class Bridge {
                 : "No final assistant reply was captured for this idle transition."}`];
         const replyTarget = { botId: this.state.bot?.id ?? null, chatId: this.state.peer.chatId,
             threadId: this.topics.destination(id), selectionId: selected.idleSelectionId, messageIds: [] };
-        signal.idleDelivery = { eventId, state: "notifying", partsSent: 0, partCount: texts.length, replyTarget };
+        signal.idleDelivery = { eventId, state: "notifying", publicIdentity: identity ?? null,
+            epoch: this.state.idleEpoch, selectionId: selected.idleSelectionId,
+            threadId: this.topics.destination(id),
+            partsSent: 0, partCount: texts.length, replyTarget };
         delete signal.idlePending;
         await this.save();
         try {
@@ -439,6 +485,62 @@ export class Bridge {
             signal.idleReply = confirmedReply;
         } catch (error) {
             signal.idleDelivery.state = "uncertain";
+            await this.save();
+            throw error;
+        }
+    }
+
+    async notifyInactivity(id, selected, row, abortSignal, statusAt) {
+        const now = this.now();
+        if (!this.state.notifyIdle || !this.state.idleEpoch || abortSignal?.aborted ||
+            !Number.isFinite(statusAt) || now < statusAt || now - statusAt > OBSERVATION_GAP_MS ||
+            row.activity?.status !== "idle" || row.awaiting_user_input || row.awaiting_plan_approval ||
+            row.awaiting_permission || row.awaiting_input || row.pending_plan) {
+            this.quiet.delete(id);
+            return;
+        }
+        const observation = await this.observations?.read(id, this.state.idleEpoch, selected.idleSelectionId);
+        const valid = value => value && value.available && !value.busy && !value.blocked &&
+            now >= value.seenAt && now - value.seenAt <= OBSERVATION_GAP_MS;
+        if (!valid(observation)) { this.quiet.delete(id); return; }
+        const scope = fingerprint([this.state.idleEpoch, selected.idleSelectionId, this.topics.destination(id)]);
+        let quiet = this.quiet.get(id);
+        if (!quiet || quiet.scope !== scope || quiet.revision !== observation.revision ||
+            now < quiet.lastScan || now - quiet.lastScan > OBSERVATION_GAP_MS) {
+            quiet = { scope, revision: observation.revision, since: now, lastScan: now, attempted: false };
+            this.quiet.set(id, quiet);
+        }
+        quiet.lastScan = now;
+        const signal = this.state.signals[id];
+        const prior = signal.inactivityDelivery;
+        if (quiet.attempted || now - quiet.since < INACTIVITY_MS ||
+            prior?.scope === scope && (prior.revision === quiet.revision || ["notifying", "uncertain"].includes(prior.state))) return;
+        const current = await this.observations.read(id, this.state.idleEpoch, selected.idleSelectionId);
+        if (!valid(current) || current.revision !== quiet.revision) { this.quiet.delete(id); return; }
+        quiet.attempted = true;
+        const replyTarget = { botId: this.state.bot?.id ?? null, chatId: this.state.peer.chatId,
+            threadId: this.topics.destination(id), selectionId: selected.idleSelectionId, messageIds: [] };
+        signal.inactivityDelivery = { scope, revision: quiet.revision, state: "notifying", since: quiet.since,
+            eventId: `inactive:${scope}:${quiet.revision}`, partsSent: 0, partCount: 1, replyTarget };
+        await this.save();
+        try {
+            if (abortSignal?.aborted) throw new Error("Inactivity notice canceled; it will not be retried.");
+            const sent = await this.saySession(id, `${sessionHeading(selected, this.topics.destination(id))}\nInactive for 15 minutes\n\n` +
+                "The session reports idle and no new activity was observed. This does not confirm task success or that hidden, detached or external work has stopped.");
+            if (!Number.isSafeInteger(sent?.message_id) || sent.message_id <= 0 ||
+                sent.chat?.id !== replyTarget.chatId ||
+                (sent.message_thread_id ?? null) !== replyTarget.threadId) {
+                throw new Error("Telegram did not confirm the inactivity notice message and destination.");
+            }
+            replyTarget.messageIds.push(sent.message_id);
+            signal.inactivityDelivery.partsSent = 1;
+            signal.inactivityDelivery.state = "sent";
+            const confirmed = structuredClone(signal.inactivityDelivery);
+            await this.persist({ ...this.state, signals: { ...this.state.signals,
+                [id]: { ...signal, idleReply: confirmed } } });
+            signal.idleReply = confirmed;
+        } catch (error) {
+            signal.inactivityDelivery.state = "uncertain";
             await this.save();
             throw error;
         }
@@ -627,7 +729,7 @@ export class Bridge {
         }
         if (text === "/start" || text === "/help") {
             if (receipt) receipt.state = "handled";
-            await respond("In a session topic, type a message or reply to an idle notification: no /tell prefix is required. After a phone message or answer, the first public reply is forwarded as soon as captured; the final result follows at idle.\n" +
+            await respond("In a session topic, type a message or reply to a result/notification: no /tell prefix is required. After a phone message or answer, the first public reply is forwarded as soon as captured; the final result follows promptly at native idle. Optional inactivity notices wait for 15 quiet minutes of reported idle.\n" +
                 "Reply to the exact question or tap its choice button to answer it. New messages cannot answer a pending decision.\n/status lists opted-in sessions, or this topic's session.\n" +
                 "Without a destination, type normally and choose a session button; nothing is sent until you choose. " +
                 "In Bridge: /tell 042 Your message sends a new instruction when that session is not awaiting a decision. " +
@@ -922,6 +1024,7 @@ export class Bridge {
     }
 
     armFirstReply(sessionId, kind, content, requestId = null) {
+        this.quiet.delete(sessionId);
         if (!this.firstReplies) return null;
         const selected = this.state.sessions[sessionId];
         if (!this.state.idleEpoch || !selected?.idleSelectionId || !Number.isSafeInteger(this.state.bot?.id)) {
@@ -960,13 +1063,22 @@ export class Bridge {
                 if (!row || row.id !== input.sessionId || retirement(row)) {
                     throw new Error("First reply withheld: its Copilot session is unavailable or retired.");
                 }
+                const publicIdentity = reply.messageId ?? reply.completionEventId;
+                const final = this.state.signals[input.sessionId]?.idleDelivery;
+                if (final?.publicIdentity === publicIdentity && final.epoch === input.epoch &&
+                    final.selectionId === input.selectionId && final.replyTarget?.threadId === input.threadId) {
+                    input.delivery = { state: ["sent", "shared"].includes(final.state) ? "shared" : "uncertain",
+                        eventId: reply.eventId, publicIdentity };
+                    await this.save();
+                    continue;
+                }
                 const shared = inputs.find(other => other.id !== input.id &&
                     other.sessionId === input.sessionId && other.epoch === input.epoch &&
                     other.selectionId === input.selectionId && other.threadId === input.threadId &&
                     other.delivery?.eventId === reply.eventId);
                 if (shared) {
                     input.delivery = { state: shared.delivery.state === "sent" ? "shared" : "uncertain",
-                        eventId: reply.eventId, sharedWith: shared.id };
+                        eventId: reply.eventId, publicIdentity, sharedWith: shared.id };
                     await this.save();
                     continue;
                 }
@@ -976,7 +1088,8 @@ export class Bridge {
                     if (end < reply.content.length && /[\uD800-\uDBFF]/.test(reply.content[end - 1])) end--;
                     parts.push(reply.content.slice(start, end)); start = end;
                 }
-                input.delivery = { state: "attempting", eventId: reply.eventId, partCount: parts.length, messageIds: [] };
+                input.delivery = { state: "attempting", eventId: reply.eventId, publicIdentity,
+                    partCount: parts.length, messageIds: [] };
                 await this.save();
                 try {
                     for (let i = 0; i < parts.length; i++) {

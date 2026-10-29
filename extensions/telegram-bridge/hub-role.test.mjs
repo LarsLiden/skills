@@ -99,15 +99,16 @@ async function extensionFixture(directory, sessionId, initialize = async () => {
     let config;
     const session = { sessionId, rpc: { tools: { execute() { throw new Error("Unexpected app mutation."); } } },
         on() { return () => {}; }, log() {} };
-    class Listener { handle() {} async close() {} }
+    class Listener { handle() {} heartbeat() {} async close() {} }
     await runInNewContext(`(async () => { ${code} })()`, {
         URL, fileURLToPath: () => directory, HubRole,
         createCanvas: options => options,
         joinSession: async options => { config = options; return session; },
         Service: class { async initialize() { await initialize(); } },
         AppAdapter: class {}, Store: class {},
-        IdleListener: Listener, AnswerListener: Listener, FirstReplyListener: Listener,
-        IdleReplyStore: class {}, AnswerReceiptStore: class {}, FirstReplyStore: class {},
+        IdleListener: Listener, AnswerListener: Listener, FirstReplyListener: Listener, ActivityListener: Listener,
+        IdleReplyStore: class {}, AnswerReceiptStore: class {}, FirstReplyStore: class {}, ActivityStore: class {},
+        setInterval: () => ({ unref() {} }), clearInterval() {},
         startPanel: async () => ({ url: "http://127.0.0.1:12345/" }),
         process: { once() {} },
     });

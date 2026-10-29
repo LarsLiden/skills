@@ -260,7 +260,10 @@ test("topic setup stays explicit, explains BotFather, and shows persisted topic 
     assert.match(html, /Inside a session topic, just type your message/);
     assert.match(html, /No <code>\/tell<\/code> prefix is required/);
     assert.match(html, /After a phone message or question answer, the first public reply is sent as soon as captured/);
-    assert.match(html, /final result still follows at idle/);
+    assert.match(html, /final result follows promptly at native idle/);
+    assert.match(html, /separate notice after 15 quiet minutes of reported idle/);
+    assert.match(html, /Final replies and questions do not wait for this timer or depend on this setting/);
+    assert.match(html, /Unknown or disconnected status does not count/);
     assert.match(html, /Reload the extension in this hub and monitored sessions/);
     await p.update({ connected: true, started: true, enabled: true,
         topics: { enabled: false, ready: 0, issues: [] } });

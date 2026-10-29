@@ -349,7 +349,7 @@ test("idle replies return Copilot's next public reply to the same Telegram topic
     const returned = f.sent.filter(m => m.text.includes("Here is the explanation."));
     assert.equal(returned.length, 1);
     assert.equal(returned[0].message_thread_id, f.route("session-a"));
-    assert.equal(returned[0].text, "First\n* IDLE *\n\nHere is the explanation.");
+    assert.equal(returned[0].text, "First\n* FINAL *\n\nHere is the explanation.");
     await f.receive("A fresh message without Reply", f.route("session-a"));
     assert.deepEqual(f.messages.at(-1), ["session-a", "A fresh message without Reply"]);
     await f.bridge.sync();
@@ -900,7 +900,7 @@ test("topics route every idle reply part and app-only alert to the session threa
     await f.bridge.sync();
     assert.equal(f.sent.length, 3);
     assert.ok(f.sent.every(m => m.message_thread_id === f.route("session-a")));
-    assert.ok(f.sent.every((m, i) => m.text.startsWith(`First\n* IDLE *\n(part ${i + 1}/3)\n\n`)));
+    assert.ok(f.sent.every((m, i) => m.text.startsWith(`First\n* FINAL *\n(part ${i + 1}/3)\n\n`)));
     f.rows[1].awaiting_plan_approval = true;
     await f.bridge.sync();
     assert.match(f.sent.at(-1).text, /Needs input in the Copilot app/);

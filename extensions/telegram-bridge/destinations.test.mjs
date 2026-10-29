@@ -75,7 +75,7 @@ async function fixture(count = 2) {
     function service() {
         const s = new Service({ app, directory: "unused-destination-test", selfId: "hub" });
         Object.assign(s, { bridge, initialized: true, configured: true, connected: true,
-            firstReplies, idleReplies: { async clear() {} } });
+            firstReplies, idleReplies: { async clear() {}, async watch() { return { close() {} }; } } });
         s.poll = async () => {};
         s.monitor = async () => {};
         return s;

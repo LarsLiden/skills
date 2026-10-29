@@ -224,7 +224,9 @@ unrelated responses are excluded. Updates appear on the normal monitoring scan,
 usually within 15 seconds while the bridge is healthy.
 
 If a question is no longer active but its answer was not captured, the message
-says **Answer unavailable**, not "Answered". A later matching receipt can replace
+says **Question may have been answered elsewhere or closed.** followed by
+**Answer unavailable**, not "Answered". Disappearance alone cannot establish
+whether it was answered, closed or became unavailable. A later matching receipt can replace
 that label. Events missed while the listener is offline are not reconstructed
 from transcripts. An unusually long freeform answer shows an explicitly labelled
 preview if the question and answer exceed Telegram's 4,096-character limit; the

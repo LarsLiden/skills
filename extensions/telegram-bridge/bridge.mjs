@@ -301,7 +301,7 @@ export class Bridge {
         const answer = request.resolution.answer;
         const heading = `${sessionHeading(selected, request.threadId)}\n\n${request.question.question}\n\n`;
         const result = answer === null
-            ? "No longer active in the bridge.\nAnswer unavailable."
+            ? "Question may have been answered elsewhere or closed.\nAnswer unavailable."
             : `Answered\nAnswer: ${answer}`;
         const text = answer === null || (heading + result).length <= 4096
             ? heading + result : heading + truncate(result, 4096 - heading.length);

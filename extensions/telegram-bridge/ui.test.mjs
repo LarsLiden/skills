@@ -255,7 +255,6 @@ test("unavailable-only selections stay visible and lose their marker when the se
 test("topic setup stays explicit, explains BotFather, and shows persisted topic problems", async () => {
     const p = await panel();
     assert.equal(p.get("enable-topics").disabled, true);
-    assert.match(html, /id="topics-help">In BotFather/);
     assert.match(html, /Deselecting a session permanently deletes its Telegram topic and all messages/);
     assert.match(html, /Idle or temporarily unavailable sessions are kept/);
     assert.match(html, /Inside a session topic, just type your message/);
@@ -275,6 +274,35 @@ test("topic setup stays explicit, explains BotFather, and shows persisted topic 
     await p.update({ connected: false });
     assert.equal(p.get("enable-topics").disabled, true);
     assert.ok(p.requests.every(request => request.method === "GET"));
+});
+
+test("topic instructions lead with BotFather's management app, not configuring the bridge bot's mini app", () => {
+    const help = html.match(/<p id="topics-help">[\s\S]*?(?=<button id="enable-topics")/)?.[0];
+    assert.ok(help, "Topic setup instructions must appear before the activation button.");
+    assert.match(help, /No new bot, token or pairing is needed/);
+    assert.match(help, /Your existing messages stay where they are/);
+    const steps = help.match(/<ol id="topics-steps">([\s\S]*?)<\/ol>/)?.[1];
+    assert.ok(steps, "Keep the primary setup route visible as ordered steps.");
+    const items = [...steps.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(match => match[1]);
+    assert.equal(items.length, 5);
+    assert.match(items[0], /href="https:\/\/t\.me\/BotFather"[^>]*>@BotFather<\/a>/);
+    assert.match(items[0], /not your bridge bot's conversation/);
+    assert.match(items[1], /BotFather's name at the top[\s\S]*profile[\s\S]*Open App[\s\S]*Launch App/);
+    assert.match(items[1], /not Configure Mini App[\s\S]*your own bot/);
+    assert.match(items[2], /existing bridge bot[\s\S]*topic\/thread settings[\s\S]*enable topics in private chats/);
+    assert.match(items[2], /Labels vary by Telegram version[\s\S]*not necessarily those exact labels/);
+    assert.match(items[3], /connected, paired bridge panel[\s\S]*Enable session topics/);
+    assert.match(items[3], /Bridge[\s\S]*one topic per selected session/);
+    assert.match(items[4], /chat list[\s\S]*reopen[\s\S]*bridge bot's conversation/);
+    assert.match(items[4], /do not recreate topics/);
+    const alternative = help.match(/<details>([\s\S]*?)<\/details>/)?.[1];
+    assert.ok(alternative);
+    assert.match(alternative, /not available in every version/);
+    assert.match(alternative, /\/mybots[\s\S]*@BotFather[\s\S]*existing bridge bot/);
+    assert.match(alternative, /Bot Settings &gt; Threads Settings &gt; Threaded Mode/);
+    assert.match(alternative, /If Threads Settings is missing[\s\S]*profile[\s\S]*Open App[\s\S]*Launch App/);
+    assert.match(help, /href="https:\/\/core\.telegram\.org\/bots\/features#topics-in-private-chats"/);
+    assert.match(help, /documentation does not specify exact menu labels/);
 });
 
 test("incoming health distinguishes app scans, polling failure and recovered historical failure", async () => {

@@ -150,6 +150,43 @@ test("free-text question messages remain editable for confirmed answers", async 
     assert.equal(request.messageUpdate.state, "sent");
 });
 
+test("long choices stay complete in the body while short numbered buttons submit exact original answers", async () => {
+    const prefix = "A deliberately long option whose full explanation cannot fit on a single phone button. ";
+    const choices = [
+        `${prefix.repeat(2)}Keep the current configuration.`,
+        `${prefix.repeat(2)}Replace the current configuration.`,
+    ];
+    for (const allow_freeform of [false, true]) {
+        for (const index of [0, 1]) {
+            const f = await fixture();
+            const edits = [];
+            f.app.rows = [row({ ...nativePending(), choices, allow_freeform })];
+            f.bridge.telegram.edit = async (chat, messageId, text) => {
+                edits.push({ chat, messageId, text });
+                return { message_id: messageId, chat: { id: chat } };
+            };
+            await f.bridge.sync();
+            const message = f.sent[0];
+            assert.ok(message.text.includes(`1. ${choices[0]}\n2. ${choices[1]}`));
+            assert.ok(message.text.length <= 3700);
+            assert.match(message.text, /Read the full numbered choices above/);
+            assert.match(message.text, /Choose 1, Choose 2, etc\.\) matching its number/);
+            const buttons = message.reply_markup.inline_keyboard.map(row => row[0]);
+            assert.deepEqual(buttons.map(button => button.text), ["Choose 1", "Choose 2"]);
+            const request = Object.values(f.disk().requests)[0];
+            assert.deepEqual(buttons.map(button => button.callback_data),
+                [`a:${request.key}:0`, `a:${request.key}:1`]);
+            await f.bridge.receive({ update_id: 1, callback_query: { id: "long-choice", from: { id: 42 },
+                message: { message_id: 1, chat: { id: 42, type: "private" } },
+                data: buttons[index].callback_data } });
+            assert.deepEqual(f.answers, [["session-a", "request-1", choices[index]]]);
+            assert.equal(edits.length, 1);
+            assert.deepEqual([edits[0].chat, edits[0].messageId], [42, 1]);
+            assert.ok(edits[0].text.endsWith(`Answered\nAnswer: ${choices[index]}`));
+        }
+    }
+});
+
 test("replaced, changed and resolved questions reject stale answers", async () => {
     for (const input of [pending("request-2"), pending("request-1", "Changed?"), null]) {
         const f = await fixture();
@@ -308,7 +345,7 @@ test("native app questions render choices and round-trip an exact answer through
     assert.equal(f.sent.length, 1);
     assert.match(f.sent[0].text, /Which option\?/);
     assert.match(f.sent[0].text, /1\. First\n2\. Second/);
-    assert.equal(f.sent[0].reply_markup.inline_keyboard[1][0].text, "2. Second");
+    assert.equal(f.sent[0].reply_markup.inline_keyboard[1][0].text, "Choose 2");
     const data = f.sent[0].reply_markup.inline_keyboard[1][0].callback_data;
     await f.bridge.receive({ update_id: 1, callback_query: { id: "click", from: { id: 42 },
         message: { message_id: 1, chat: { id: 42, type: "private" } }, data } });

@@ -329,8 +329,8 @@ export class Bridge {
                 this.state.requests[requestKey] = request;
                 await this.save();
                 try {
-                    const buttons = question.choices.map((choice, index) => [{
-                        text: `${index + 1}. ${choice}`.slice(0, 60), callback_data: `a:${requestKey}:${index}`,
+                    const buttons = question.choices.map((_, index) => [{
+                        text: `Choose ${index + 1}`, callback_data: `a:${requestKey}:${index}`,
                     }]);
                     const message = await this.saySession(id, text, buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {});
                     if (!Number.isSafeInteger(message?.message_id)) throw new Error("Telegram did not confirm a message ID.");
@@ -445,11 +445,13 @@ export class Bridge {
     }
 
     questionText(selected, q, threadId) {
+        const choiceInstructions = "\nRead the full numbered choices above. Tap a choice button " +
+            "(Choose 1, Choose 2, etc.) matching its number";
         const instructions = !q.choices.length
             ? "\nReply to this message with your answer: in Telegram, select this message and choose Reply, then type and send. " +
                 "Typing a regular message does not answer this question."
-            : q.allowFreeform ? "\nTap a choice or Reply to this message with your answer."
-                : "\nTap a choice or Reply with the exact choice text.";
+            : choiceInstructions + (q.allowFreeform ? ", or Reply to this message with your answer."
+                : ", or Reply with the exact choice text.");
         return `${sessionHeading(selected, threadId)}\n\n${q.question}\n` +
             (q.choices.length ? "\n" + q.choices.map((c, i) => `${i + 1}. ${c}`).join("\n") + "\n" : "") +
             instructions;

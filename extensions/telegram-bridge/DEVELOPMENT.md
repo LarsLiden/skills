@@ -42,6 +42,42 @@ this app connection without connecting Telegram or running a monitoring sync.
 to change bots. Saving a replacement clears pairing and session selections;
 canceling leaves the saved configuration unchanged.
 
+### Hub-only relay guidance
+
+`extension.mjs` registers `HubRole.hooks` through `joinSession`. Only after
+`Service.initialize()` successfully acquires the single-owner lock and loads
+the bridge does opening the canvas record its exact `session.sessionId` in
+`artifacts/hub-role.json`. A failed attempt to open a second hub does not replace
+that identity. The designation survives disconnect, panel close and provider
+reload; opening a replacement hub after releasing ownership records its new ID.
+It is a local role designation, not credentials or routing/approval authority.
+
+`onSessionStart` (including resume), `onUserPromptSubmitted` and `onPostToolUse`
+read that designation and return only `additionalContext` for the matching root
+hub session. The post-tool hook covers activation during the same turn that
+opens the canvas and reasserts the role as tools finish. Other session IDs,
+mismatched hook/invocation identities and subagent actors receive no context.
+The hooks neither initialize a service nor connect Telegram, and missing role
+records are a no-op until panel activation. Invalid records and read/write
+failures surface as errors instead of silently disabling guidance.
+
+The context defines unchanged, explicitly routed relaying with original
+attribution, not coordination. Cross-session requests for authority/provenance,
+approval, assignments or scope negotiation remain payload, not new authority.
+Routine reports receive no self-authored follow-up or unsolicited summary.
+Explicit user-directed bridge setup/maintenance stays in scope. This uses the
+SDK's additive context contract, not `systemMessage` replacement, prompt/tool
+argument rewriting, permission overrides or model-driven automatic forwarding.
+The existing paired-account, opt-in, exact question/request identity,
+explicit-destination and uncertain-delivery checks are unchanged.
+
+This is an instruction-level mitigation, not a guarantee against model drift.
+Tests verify hook output, persisted session scoping, actual entrypoint wiring,
+unchanged payloads and existing routing behavior; they do not prove future model
+compliance. Install the updated entrypoint and `hub-role.mjs`, safely reload only
+the hub provider, reopen the panel and explicitly reconnect the saved bot to
+activate it. No monitored-listener reload or whole-app restart is required.
+
 Opt-in sends session names, question text, choices and captured answers to Telegram.
 After a phone message or answer, it also forwards the first public assistant reply.
 When idle notifications are enabled, it sends the latest public final reply as well.
@@ -51,7 +87,10 @@ Phone notifications still depend on Telegram and the phone's notification/Focus 
 
 ## Phone controls
 
-- Tap a question's choice button, or use Telegram **Reply** on that question.
+- Read the full numbered choices in the question, then tap the matching
+  **Choose 1**, **Choose 2**, etc. button, or use Telegram **Reply** on that question.
+  Short numbered buttons avoid Telegram's single-line clipping of long labels;
+  callbacks still submit the complete original choice, not the button label.
 - Questions with no choices explain how to select the exact question and choose
   Telegram **Reply** before typing. They omit reply markup to preserve in-place
   answer updates: Telegram only permits
@@ -200,9 +239,17 @@ the bridge to submit the answer again.
 
 ## Private session topics
 
-Use your existing bot and pairing; no group or new bot is required. Enable
-private-chat topics for the bot in BotFather, then click **Enable session topics**
-in section 4 of the local panel while connected and paired. The bridge checks
+Use your existing bot and pairing; no group, new bot or new token is required.
+Follow [the setup walkthrough](README.md#4-enable-session-topics): open the official
+**@BotFather**, tap its name to open its profile, then **Open App** or **Launch App**
+to open BotFather's management mini app. Select the existing bridge bot and enable
+private-chat topics in its topic/thread settings; exact labels vary by version.
+This is not **Configure Mini App** in the chat's Bot Settings menu, which configures
+your own bot's mini app. The alternative `/mybots` chat-menu route may not expose
+**Threads Settings**; use the profile route if it is missing.
+Then click **Enable session topics** in section 4 of the local panel while
+connected and paired, and return to Telegram's chat list and reopen the bridge
+bot conversation to see the topics. The bridge checks
 Telegram's `getMe.has_topics_enabled` capability before changing its routing.
 Opening the panel or reconnecting alone does not activate this feature.
 
@@ -494,6 +541,9 @@ to bypass the native interface.
 ## Local data and maintenance
 
 Source is in this personal extension folder, not a project repository.
+`artifacts/hub-role.json` records only the last successfully designated hub's
+session ID and format version for the scoped relay guidance above. It is
+independent of bot replacement/forgetting and is never copied with shared source.
 `artifacts/state.json` retains selections, account identifiers and question/action
 records, including reserved session codes. Legacy version-1 state is migrated
 atomically to version 2 before the bridge starts.

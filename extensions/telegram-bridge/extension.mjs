@@ -7,8 +7,10 @@ import { Store } from "./storage.mjs";
 import { IdleListener, IdleReplyStore } from "./idle.mjs";
 import { AnswerListener, AnswerReceiptStore } from "./answers.mjs";
 import { FirstReplyListener, FirstReplyStore } from "./first-reply.mjs";
+import { HubRole } from "./hub-role.mjs";
 
 const directory = fileURLToPath(new URL("./artifacts/", import.meta.url));
+const hubRole = new HubRole(directory);
 let service, panel, opening;
 async function ensurePanel() {
     opening ??= (async () => {
@@ -19,6 +21,7 @@ async function ensurePanel() {
             notify: message => { void session.log(message, { level: "warning", ephemeral: false }); },
         });
         await service.initialize();
+        await hubRole.activate(session.sessionId);
         panel ??= await startPanel(service);
         return panel;
     })().catch(error => { opening = undefined; throw error; });
@@ -59,7 +62,9 @@ const canvas = createCanvas({
     },
 });
 
-const session = await joinSession({ canvases: [canvas], streaming: true, includeSubAgentStreamingEvents: false });
+const session = await joinSession({
+    canvases: [canvas], hooks: hubRole.hooks, streaming: true, includeSubAgentStreamingEvents: false,
+});
 const listener = new IdleListener({
     sessionId: session.sessionId, stateStore: new Store(directory), replies: new IdleReplyStore(directory),
     notify: message => session.log(`Telegram idle capture: ${message}`, { level: "warning", ephemeral: false }),

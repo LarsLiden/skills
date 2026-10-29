@@ -106,6 +106,29 @@ sessions supply their own reply listeners; they do not each need a setup panel.
 Closing/reopening the panel does not stop the bot. Use the panel's disconnect
 control, or close the hub session, to stop it.
 
+The hub is **relay-only, not a project coordinator**. After its panel successfully
+acquires bridge ownership, the extension records that exact hub session ID and
+injects role guidance on session start/resume, each submitted prompt and after
+tools. This persists across provider reloads and does not apply to monitored
+coding sessions or their subagents.
+
+Explicitly addressed payloads keep their exact text and sender/destination
+attribution under the existing routing checks. Incoming cross-session reports or
+requests for approvals, provenance checks, scope changes or coordinator action
+do not change the hub's role. The hub should not invent approvals, investigate
+authority, negotiate scope, assign work, summarize unrelated progress or send
+self-authored coordination replies. Routine reports without a requested relay
+remain unanswered. Explicit user requests to configure, maintain or fix the
+bridge itself remain supported.
+
+This is **instruction-level mitigation**, not a guarantee of model behavior or
+a tool-permission sandbox. Host safety and routing safeguards remain in force;
+the hooks do not rewrite messages, automatically forward reports or grant
+approvals. To activate an update to this guidance, install `extension.mjs` and
+`hub-role.mjs`, safely reload only the hub provider, reopen its panel and use
+**Connect saved bot**. Merely reopening a panel running old code is insufficient.
+Monitored-session listeners do not need reloading for this hub-only change.
+
 ## 3. Create a bot and pair your phone
 
 1. In Telegram, open the official **@BotFather** account and send `/newbot`.
@@ -127,14 +150,38 @@ The token, pairing and selections are saved locally. On later starts, use
 
 ## 4. Enable session topics
 
-1. In BotFather's settings for this bot, enable **topics in private chats**.
-   The bridge checks the bot's reported support before using them.
-2. In the connected, paired setup panel, click **Enable session topics**.
-3. Open the bot conversation on your phone. You should see a **Bridge** topic
-   and a topic named after each selected Copilot session.
+Use your **existing bridge bot**. No new bot, token or pairing is needed, and
+existing messages stay where they are.
 
-If Telegram on Android still shows a mixed conversation, return to Telegram's
-chat list and reopen the bot. Do not recreate topics just to refresh that view.
+1. In Telegram, open the official [**@BotFather**](https://t.me/BotFather)
+   conversation, **not your bridge bot's conversation**.
+2. Tap **BotFather's name at the top** to open its profile, then tap **Open App**
+   or **Launch App** to open BotFather's management mini app. This is **not
+   Configure Mini App** in the chat's Bot Settings menu; that configures a mini
+   app for your own bot.
+3. In the management app, select your **existing bridge bot**. Find its
+   topic/thread settings and enable **topics in private chats**. Labels vary by
+   Telegram version; look for **Threads Settings** or **Threaded Mode**, not
+   necessarily those exact labels.
+4. Return to the connected, paired bridge panel and click **Enable session topics**.
+   The bridge checks the bot's reported support before using them.
+5. On your phone, return to Telegram's **chat list** and reopen your **bridge bot's
+   conversation**. You should see a **Bridge** topic and a topic named after each
+   selected Copilot session. If the old mixed view remains, reopen it again.
+   Do not recreate topics just to refresh that view.
+
+**Alternative chat-menu route:** send `/mybots` to **@BotFather**, select your
+existing bridge bot, then look under **Bot Settings > Threads Settings > Threaded
+Mode**. Turn it on if present. This route is not available in every version. If
+**Threads Settings** is missing, use BotFather's profile and **Open App** or
+**Launch App** instead, not **Configure Mini App**, then return to the bridge panel.
+
+[Telegram's official guide](https://core.telegram.org/bots/features#topics-in-private-chats)
+confirms that private-chat topics must be enabled via BotFather, but does not
+specify exact menu labels. The profile-to-management-app route above was confirmed
+in live setup; the chat-menu labels are also shown in this
+[illustrated third-party guide](https://gajae-code.com/docs/telegram-onboarding.html#2-enable-threaded-mode-in-botfather).
+Neither source guarantees the same labels in every Telegram version.
 
 **Deselection permanently deletes that session's Telegram topic and its message
 history.** The bridge also cleans up topics for sessions the app explicitly
@@ -145,7 +192,7 @@ are retained; a failed lookup is not proof of deletion. The Bridge topic remains
 
 | Action | What to do |
 | --- | --- |
-| Answer a multiple-choice question | Tap its choice button, or use Telegram **Reply** on that exact question. |
+| Answer a multiple-choice question | Read the full numbered choices in the question, then tap the matching **Choose 1**, **Choose 2**, etc. button, or use Telegram **Reply** on that exact question. |
 | Answer a free-text question | Select that exact question in Telegram and choose **Reply**, then type and send your answer. |
 | Send a new instruction | Type normally inside the session's topic. **No `/tell` prefix is needed.** |
 | Reply to an idle/result message | Use Telegram Reply inside its session topic; only your new text is sent. |

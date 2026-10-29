@@ -61,9 +61,39 @@
   </section>
   <section>
     <h2>4. Session topics</h2>
-    <p id="topics-help">In BotFather, enable private-chat topics for your existing bot.
-      Then use Enable session topics here. The bridge creates a Bridge topic and one topic per selected session.
-      Your existing messages stay where they are; no new bot or pairing is needed.</p>
+    <p id="topics-help">Enable topics for your <strong>existing bridge bot</strong> in Telegram first,
+      then enable them in this panel. No new bot, token or pairing is needed.
+      Your existing messages stay where they are.</p>
+    <ol id="topics-steps">
+      <li>In Telegram, open the official
+        <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> conversation
+        <strong>not your bridge bot's conversation</strong>.</li>
+      <li>Tap <strong>BotFather's name at the top</strong> to open its profile.
+        Tap <strong>Open App</strong> or <strong>Launch App</strong> to open BotFather's management mini app.
+        This is <strong>not Configure Mini App</strong> in the chat's Bot Settings menu;
+        that configures a mini app for your own bot.</li>
+      <li>In the management app, select your <strong>existing bridge bot</strong>.
+        Find its topic/thread settings and enable topics in private chats.
+        Labels vary by Telegram version; look for <strong>Threads Settings</strong> or
+        <strong>Threaded Mode</strong>, not necessarily those exact labels.</li>
+      <li>Return to this connected, paired bridge panel and click <strong>Enable session topics</strong> below.
+        The bridge checks Telegram's reported support, then creates a <strong>Bridge</strong> topic
+        and one topic per selected session.</li>
+      <li>On your phone, return to Telegram's <strong>chat list</strong> and reopen your
+        <strong>bridge bot's conversation</strong> to see the topics.
+        If the old mixed view remains, reopen it again; do not recreate topics just to refresh the view.</li>
+    </ol>
+    <details>
+      <summary>Alternative: BotFather's chat menu (not available in every version)</summary>
+      <p>Send <code>/mybots</code> to <strong>@BotFather</strong>, select your existing bridge bot,
+        then look under <strong>Bot Settings &gt; Threads Settings &gt; Threaded Mode</strong>.
+        Turn it on if present. If Threads Settings is missing, use BotFather's profile and
+        <strong>Open App</strong> or <strong>Launch App</strong> as described above,
+        not <strong>Configure Mini App</strong>. Then return here to enable session topics.</p>
+    </details>
+    <p class="muted"><a href="https://core.telegram.org/bots/features#topics-in-private-chats"
+      target="_blank" rel="noreferrer">Telegram's official private-chat topics guide</a>
+      confirms the BotFather requirement; its documentation does not specify exact menu labels.</p>
     <button id="enable-topics" disabled>Enable session topics</button>
     <p id="topics-status" class="muted"></p>
     <p class="muted">Deselecting a session permanently deletes its Telegram topic and all messages.
@@ -74,7 +104,9 @@
   </section>
   <section>
     <h2>On your phone</h2>
-    <p>Tap a choice or use Telegram's <strong>Reply</strong> on the original question.
+    <p>Read the full numbered choices in the question, then tap the matching
+      <strong>Choose 1</strong>, <strong>Choose 2</strong>, etc. button,
+      or use Telegram's <strong>Reply</strong> on the original question.
       Send <code>/status</code> to see selected sessions, or
       <code>/tell 042 Your instruction</code> in Bridge for a new message.
       Replace <code>042</code> with the session's three-digit code, including leading zeros.</p>

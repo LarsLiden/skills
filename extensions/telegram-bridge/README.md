@@ -177,7 +177,8 @@ without sending an instruction to an agent.
 
 After a phone message or answer:
 
-- The bridge acknowledges app acceptance. That acknowledgment is **not** an
+- The bridge briefly acknowledges app acceptance, for example:
+  `The app accepted your message for [042].` That acknowledgment is **not** an
   agent response or proof of task completion.
 - **`* REPLY *`** contains the first captured complete public agent reply,
   including a progress preamble when available, without waiting for the job to

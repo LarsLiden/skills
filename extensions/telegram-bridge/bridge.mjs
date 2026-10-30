@@ -822,7 +822,7 @@ export class Bridge {
         receipt.stage = "destination-choice-update";
         await this.save();
         const outcome = !offer ? "Canceled this unsent message. No Copilot job was canceled."
-            : receipt.state === "accepted" ? `Copilot accepted your message for [${offer.alias}] ${offer.name}. This is not task completion.`
+            : receipt.state === "accepted" ? `Copilot accepted your message for [${offer.alias}] ${offer.name}.`
                 : receipt.state === "uncertain" ? "The app did not confirm delivery. Inspect Copilot before resending; these buttons cannot retry it."
                     : "No new message was sent. Check the bridge's explanation; these buttons have been used.";
         const result = await this.telegram.edit(choice.chatId, choice.messageId, outcome, { inline_keyboard: [] });
@@ -916,7 +916,7 @@ export class Bridge {
         const completed = Object.keys(this.state.commands).filter(k => ["sent", "not-sent"].includes(this.state.commands[k].state));
         for (const k of completed.slice(0, Math.max(0, completed.length - 200))) delete this.state.commands[k];
         await this.save();
-        await respond(`The app accepted your message for [${alias}]. This is not a task-completion confirmation.`);
+        await respond(`The app accepted your message for [${alias}].`);
     }
 
     armFirstReply(sessionId, kind, content, requestId = null) {

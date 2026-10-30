@@ -126,6 +126,7 @@ test("topic messages send plain text to the bound session without a prefix or nu
     ]);
     assert.equal(f.answers.length, 0);
     assert.equal(f.sent.at(-1).message_thread_id, f.route("session-a"));
+    assert.equal(f.sent.at(-1).text, "The app accepted your message for [000].");
 });
 
 test("missing topic metadata offers destination choices without guessing or replaying a message", async () => {

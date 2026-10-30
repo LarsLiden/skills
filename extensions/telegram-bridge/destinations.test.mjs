@@ -118,6 +118,8 @@ test("destination selection dispatches the exact text once through normal first-
     assert.equal(f.disk().inbound[prompt.update.update_id].destinationChoice.callbackUpdateId, chosen.update_id);
     assert.equal(Object.values(f.disk().phoneInputs)[0].state, "accepted");
     assert.deepEqual(f.edits.at(-1).markup, { inline_keyboard: [] });
+    assert.equal(f.edits.at(-1).text, "Copilot accepted your message for [000] Session 0.");
+    assert.equal(f.sent.at(-1).text, "The app accepted your message for [000].");
     await f.bridge.receive(chosen);
     await f.bridge.receive(f.callback(prompt));
     assert.equal(f.calls.length, 1);

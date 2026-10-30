@@ -226,6 +226,7 @@ test("explicit new messages require opted-in alias and no pending input", async 
     assert.equal(f.messages.length, 0);
     f.app.rows = [row(null)];
     await f.bridge.receive(reply(2, "/tell 042 Please report progress"));
+    assert.equal(f.sent.at(-1).text, "The app accepted your message for [042].");
     await f.bridge.receive(reply(2, "/tell 042 Please report progress"));
     await f.bridge.receive(reply(3, "/tell unknown Continue"));
     assert.deepEqual(f.messages, [["session-a", "Please report progress"]]);
